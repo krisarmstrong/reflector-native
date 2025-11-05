@@ -26,10 +26,15 @@
 #include <sys/socket.h>
 #include <net/bpf.h>
 #include <net/if.h>
+#include <net/ethernet.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
 #include "reflector.h"
+
+#ifndef ETHERTYPE_IP
+#define ETHERTYPE_IP 0x0800
+#endif
 
 #define BPF_DEV_PREFIX "/dev/bpf"
 #define BPF_BUFFER_SIZE (4 * 1024 * 1024)  /* 4MB for batching */
@@ -112,7 +117,7 @@ static int set_bpf_filter(int fd, const uint8_t mac[6])
     };
 
     struct bpf_program filter = {
-        .bf_len = sizeof(insns) / sizeof(insns[0]),
+        .bf_len = 10,  /* Number of BPF instructions */
         .bf_insns = insns
     };
 
@@ -130,6 +135,8 @@ static int set_bpf_filter(int fd, const uint8_t mac[6])
  */
 int bpf_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 {
+    (void)rctx;  /* Not used on macOS */
+
     struct platform_ctx *pctx = calloc(1, sizeof(*pctx));
     if (!pctx) {
         reflector_log(LOG_ERROR, "Failed to allocate platform context");

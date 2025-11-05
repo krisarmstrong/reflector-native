@@ -22,6 +22,11 @@
 #include <linux/sockios.h>
 #endif
 
+#ifdef __APPLE__
+#include <ifaddrs.h>
+#include <net/if_dl.h>
+#endif
+
 #include "reflector.h"
 
 /* Current log level */
@@ -83,6 +88,7 @@ int get_interface_index(const char *ifname)
  */
 int get_interface_mac(const char *ifname, uint8_t mac[6])
 {
+#ifdef __linux__
     int fd, ret;
     struct ifreq ifr;
 
@@ -105,6 +111,33 @@ int get_interface_mac(const char *ifname, uint8_t mac[6])
 
     memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
     close(fd);
+
+#elif defined(__APPLE__)
+    /* macOS uses getifaddrs() to get MAC address */
+    struct ifaddrs *ifap, *ifaptr;
+
+    if (getifaddrs(&ifap) != 0) {
+        reflector_log(LOG_ERROR, "Failed to get interface list: %s", strerror(errno));
+        return -1;
+    }
+
+    for (ifaptr = ifap; ifaptr != NULL; ifaptr = ifaptr->ifa_next) {
+        if (strcmp(ifaptr->ifa_name, ifname) == 0 &&
+            ifaptr->ifa_addr->sa_family == AF_LINK) {
+            struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifaptr->ifa_addr;
+            memcpy(mac, LLADDR(sdl), 6);
+            freeifaddrs(ifap);
+
+            reflector_log(LOG_DEBUG, "Interface %s MAC: %02x:%02x:%02x:%02x:%02x:%02x",
+                         ifname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            return 0;
+        }
+    }
+
+    freeifaddrs(ifap);
+    reflector_log(LOG_ERROR, "Failed to find MAC address for %s", ifname);
+    return -1;
+#endif
 
     reflector_log(LOG_DEBUG, "Interface %s MAC: %02x:%02x:%02x:%02x:%02x:%02x",
                  ifname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -156,6 +189,7 @@ int get_num_rx_queues(const char *ifname)
     return num_queues;
 #else
     /* macOS doesn't expose queue information */
+    (void)ifname;
     return 1;
 #endif
 }
@@ -164,7 +198,7 @@ int get_num_rx_queues(const char *ifname)
  * Get CPU affinity for a specific queue
  * Returns -1 if unable to determine
  *
- * On Linux, this reads /proc/irq/*/smp_affinity to find which CPU
+ * On Linux, this reads /proc/irq/<irq>/smp_affinity to find which CPU
  * handles the IRQ for this queue. This is a best-effort heuristic.
  */
 int get_queue_cpu_affinity(const char *ifname, int queue_id)
@@ -172,8 +206,11 @@ int get_queue_cpu_affinity(const char *ifname, int queue_id)
 #ifdef __linux__
     /* For now, simple round-robin assignment */
     /* TODO: Parse /proc/irq for actual IRQ affinity */
+    (void)ifname;
     return queue_id % sysconf(_SC_NPROCESSORS_ONLN);
 #else
+    (void)ifname;
+    (void)queue_id;
     return -1;
 #endif
 }

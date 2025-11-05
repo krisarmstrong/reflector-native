@@ -6,10 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sched.h>
 #include "reflector.h"
+
+/* Forward declarations */
+extern const platform_ops_t* get_xdp_platform_ops(void);
+extern const platform_ops_t* get_bpf_platform_ops(void);
 
 /* Global platform ops (set at runtime) */
 static const platform_ops_t *platform_ops = NULL;
@@ -213,10 +218,6 @@ void reflector_get_stats(const reflector_ctx_t *rctx, reflector_stats_t *stats)
         stats->tx_errors += rctx->workers[i].stats.tx_errors;
     }
 }
-
-/* External platform ops accessors */
-extern const platform_ops_t* get_xdp_platform_ops(void);
-extern const platform_ops_t* get_bpf_platform_ops(void);
 
 const platform_ops_t* get_platform_ops(void)
 {

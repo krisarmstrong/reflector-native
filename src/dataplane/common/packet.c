@@ -91,6 +91,7 @@ bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6])
 void reflect_packet_inplace(uint8_t *data, uint32_t len)
 {
     uint8_t temp[6];  /* Temp buffer for swapping */
+    (void)len;  /* Length not needed for in-place swapping */
 
     /* Swap Ethernet MAC addresses */
     memcpy(temp, &data[ETH_DST_OFFSET], 6);

@@ -24,12 +24,14 @@ void print_stats(const reflector_stats_t *stats, double elapsed)
     double pps = stats->packets_reflected / elapsed;
     double mbps = (stats->bytes_reflected * 8.0) / (elapsed * 1000000.0);
 
-    printf("\r[%.1fs] RX: %lu pkts (%lu bytes) | "
-           "Reflected: %lu pkts (%lu bytes) | "
+    printf("\r[%.1fs] RX: %llu pkts (%llu bytes) | "
+           "Reflected: %llu pkts (%llu bytes) | "
            "%.0f pps, %.2f Mbps   ",
            elapsed,
-           stats->packets_received, stats->bytes_received,
-           stats->packets_reflected, stats->bytes_reflected,
+           (unsigned long long)stats->packets_received,
+           (unsigned long long)stats->bytes_received,
+           (unsigned long long)stats->packets_reflected,
+           (unsigned long long)stats->bytes_reflected,
            pps, mbps);
     fflush(stdout);
 }
@@ -90,11 +92,11 @@ int main(int argc, char **argv)
     reflector_get_stats(&g_rctx, &final_stats);
 
     printf("\nFinal Statistics:\n");
-    printf("  Packets received:  %lu\n", final_stats.packets_received);
-    printf("  Packets reflected: %lu\n", final_stats.packets_reflected);
-    printf("  Bytes received:    %lu\n", final_stats.bytes_received);
-    printf("  Bytes reflected:   %lu\n", final_stats.bytes_reflected);
-    printf("  TX errors:         %lu\n", final_stats.tx_errors);
+    printf("  Packets received:  %llu\n", (unsigned long long)final_stats.packets_received);
+    printf("  Packets reflected: %llu\n", (unsigned long long)final_stats.packets_reflected);
+    printf("  Bytes received:    %llu\n", (unsigned long long)final_stats.bytes_received);
+    printf("  Bytes reflected:   %llu\n", (unsigned long long)final_stats.bytes_reflected);
+    printf("  TX errors:         %llu\n", (unsigned long long)final_stats.tx_errors);
 
     return 0;
 }
