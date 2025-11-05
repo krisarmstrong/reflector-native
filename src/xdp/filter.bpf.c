@@ -1,0 +1,175 @@
+/*
+ * filter.bpf.c - eBPF XDP filter for ITO packet classification
+ *
+ * Copyright (c) 2025 Kris Armstrong
+ *
+ * This eBPF program runs in the Linux kernel at the driver level,
+ * filtering ITO packets before they reach userspace. Matching packets
+ * are redirected to AF_XDP socket, others pass to normal network stack.
+ *
+ * This achieves line-rate performance by:
+ * - Early packet filtering in kernel
+ * - Avoiding unnecessary copies to userspace
+ * - Leveraging XDP zero-copy RX
+ */
+
+#include <linux/bpf.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/udp.h>
+#include <linux/in.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_endian.h>
+
+/* ITO packet signatures */
+#define ITO_SIG_LEN 7
+
+/* Map for XDP socket redirect */
+struct {
+    __uint(type, BPF_MAP_TYPE_XSKMAP);
+    __uint(key_size, sizeof(__u32));
+    __uint(value_size, sizeof(__u32));
+    __uint(max_entries, 64);  /* Max 64 queues */
+} xsks_map SEC(".maps");
+
+/* Map for storing interface MAC addresses */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(key_size, sizeof(__u32));
+    __uint(value_size, 6);  /* MAC address */
+    __uint(max_entries, 1);
+} mac_map SEC(".maps");
+
+/* Statistics map */
+struct xdp_stats {
+    __u64 packets_total;
+    __u64 packets_ito;
+    __u64 packets_passed;
+    __u64 packets_dropped;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(key_size, sizeof(__u32));
+    __uint(value_size, sizeof(struct xdp_stats));
+    __uint(max_entries, 1);
+} stats_map SEC(".maps");
+
+/*
+ * Helper function to compare memory regions
+ * (eBPF doesn't allow calling standard memcmp)
+ */
+static __always_inline int bpf_memcmp(const void *s1, const void *s2, __u32 size)
+{
+    const __u8 *p1 = s1;
+    const __u8 *p2 = s2;
+
+    for (__u32 i = 0; i < size; i++) {
+        if (p1[i] != p2[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/*
+ * Main XDP program
+ *
+ * Packet flow:
+ * 1. Parse Ethernet header
+ * 2. Check destination MAC matches interface
+ * 3. Parse IPv4 header
+ * 4. Check for UDP protocol
+ * 5. Check for ITO signature
+ * 6. If match -> XDP_REDIRECT to AF_XDP socket
+ * 7. Otherwise -> XDP_PASS to normal stack
+ */
+SEC("xdp")
+int xdp_filter_ito(struct xdp_md *ctx)
+{
+    void *data_end = (void *)(long)ctx->data_end;
+    void *data = (void *)(long)ctx->data;
+
+    /* Update total packet count */
+    __u32 key = 0;
+    struct xdp_stats *stats = bpf_map_lookup_elem(&stats_map, &key);
+    if (stats) {
+        __sync_fetch_and_add(&stats->packets_total, 1);
+    }
+
+    /* Parse Ethernet header */
+    struct ethhdr *eth = data;
+    if ((void *)(eth + 1) > data_end) {
+        goto pass;
+    }
+
+    /* Check for IPv4 */
+    if (eth->h_proto != bpf_htons(ETH_P_IP)) {
+        goto pass;
+    }
+
+    /* Get interface MAC from map and check destination */
+    __u8 *mac_addr = bpf_map_lookup_elem(&mac_map, &key);
+    if (mac_addr) {
+        if (bpf_memcmp(eth->h_dest, mac_addr, 6) != 0) {
+            /* Not for us, pass through */
+            goto pass;
+        }
+    }
+
+    /* Parse IPv4 header */
+    struct iphdr *iph = (void *)(eth + 1);
+    if ((void *)(iph + 1) > data_end) {
+        goto pass;
+    }
+
+    /* Verify IPv4 and header length */
+    if (iph->version != 4 || iph->ihl < 5) {
+        goto pass;
+    }
+
+    /* Check for UDP protocol */
+    if (iph->protocol != IPPROTO_UDP) {
+        goto pass;
+    }
+
+    /* Parse UDP header */
+    __u32 ip_hdr_len = iph->ihl * 4;
+    struct udphdr *udph = (void *)iph + ip_hdr_len;
+    if ((void *)(udph + 1) > data_end) {
+        goto pass;
+    }
+
+    /* Check UDP payload for ITO signature */
+    __u8 *payload = (void *)(udph + 1);
+    if (payload + ITO_SIG_LEN > (__u8 *)data_end) {
+        goto pass;
+    }
+
+    /* Check for ITO signatures: PROBEOT, DATA:OT, LATENCY */
+    const char sig_probeot[ITO_SIG_LEN] = "PROBEOT";
+    const char sig_dataot[ITO_SIG_LEN] = "DATA:OT";
+    const char sig_latency[ITO_SIG_LEN] = "LATENCY";
+
+    if (bpf_memcmp(payload, sig_probeot, ITO_SIG_LEN) == 0 ||
+        bpf_memcmp(payload, sig_dataot, ITO_SIG_LEN) == 0 ||
+        bpf_memcmp(payload, sig_latency, ITO_SIG_LEN) == 0) {
+
+        /* ITO packet detected - redirect to AF_XDP socket */
+        if (stats) {
+            __sync_fetch_and_add(&stats->packets_ito, 1);
+        }
+
+        /* Redirect to AF_XDP socket for this queue */
+        return bpf_redirect_map(&xsks_map, ctx->rx_queue_index, 0);
+    }
+
+pass:
+    /* Not an ITO packet, pass to normal network stack */
+    if (stats) {
+        __sync_fetch_and_add(&stats->packets_passed, 1);
+    }
+    return XDP_PASS;
+}
+
+char _license[] SEC("license") = "GPL";

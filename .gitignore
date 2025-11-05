@@ -1,0 +1,39 @@
+# Binaries
+reflector-linux
+reflector-macos
+reflector
+
+# Object files
+*.o
+*.so
+*.a
+
+# eBPF objects
+*.bpf.o
+
+# Build directories
+build/
+dist/
+
+# Go
+src/control/go.sum
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debug
+*.dSYM/
+core
+vgcore.*
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

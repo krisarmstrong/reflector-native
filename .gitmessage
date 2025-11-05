@@ -1,0 +1,32 @@
+# <type>: <subject>
+#
+# <body>
+#
+# <footer>
+#
+# Type should be one of the following:
+# * feat: A new feature
+# * fix: A bug fix
+# * docs: Documentation changes
+# * style: Code style changes (formatting, etc)
+# * refactor: Code refactoring
+# * perf: Performance improvements
+# * test: Adding or updating tests
+# * build: Build system changes
+# * ci: CI/CD changes
+# * chore: Other changes (dependencies, etc)
+#
+# Subject line (first line):
+# - Use imperative mood ("add" not "added" or "adds")
+# - Don't capitalize first letter
+# - No period at the end
+# - Limit to 50 characters
+#
+# Body (optional):
+# - Wrap at 72 characters
+# - Explain what and why, not how
+# - Can include multiple paragraphs
+#
+# Footer (optional):
+# - Reference issues: "Fixes #123" or "Closes #456"
+# - Breaking changes: "BREAKING CHANGE: description"
