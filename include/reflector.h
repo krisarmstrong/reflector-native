@@ -12,10 +12,8 @@
 #include <stdbool.h>
 #include <sys/types.h>
 
-/* Version information */
-#define REFLECTOR_VERSION_MAJOR 1
-#define REFLECTOR_VERSION_MINOR 3
-#define REFLECTOR_VERSION_PATCH 0
+/* Version information - Auto-generated from git tags */
+#include "version_generated.h"
 
 /* Compiler hints for branch prediction */
 #ifdef __GNUC__

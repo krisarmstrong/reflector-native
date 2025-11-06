@@ -56,7 +56,11 @@ endif
 ALL_OBJS := $(COMMON_OBJS) $(PLATFORM_OBJS)
 
 # Default target
-all: $(TARGET) $(XDP_PROG)
+all: version $(TARGET) $(XDP_PROG)
+
+# Generate version from git tags
+version:
+	@./scripts/gen-version.sh include/version_generated.h
 
 # Link executable
 $(TARGET): $(ALL_OBJS)
@@ -64,8 +68,8 @@ $(TARGET): $(ALL_OBJS)
 	$(CC) $(ALL_OBJS) -o $@ $(LDFLAGS)
 	@echo "Build complete: $@"
 
-# Compile C source files
-%.o: %.c
+# Compile C source files (depend on version being generated)
+%.o: %.c version
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -86,6 +90,7 @@ clean:
 	rm -f src/dataplane/linux_packet/*.o
 	rm -f src/dataplane/macos_bpf/*.o
 	rm -f src/xdp/*.o
+	rm -f include/version_generated.h
 	rm -f $(TARGET) reflector-linux reflector-macos
 	@echo "Clean complete"
 
@@ -333,6 +338,6 @@ help:
 	@echo "Platform: $(UNAME_S)"
 	@echo "Target:   $(TARGET)"
 
-.PHONY: all test test-utils test-benchmark test-all coverage test-asan test-ubsan \
+.PHONY: all version test test-utils test-benchmark test-all coverage test-asan test-ubsan \
         test-valgrind format format-check lint cppcheck quality pre-commit ci-check \
         check-all clean clean-all install uninstall help

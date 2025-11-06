@@ -275,14 +275,17 @@ make coverage              # Code coverage
 make check-all             # Run everything (30+ checks)
 ```
 
-#### Versioning
+#### Versioning (Git Tags)
 ```bash
-# Semantic versioning (manual, intentional)
-./scripts/version.sh current        # Show current version
-./scripts/version.sh bump patch     # 1.3.0 -> 1.3.1
-./scripts/version.sh bump minor     # 1.3.0 -> 1.4.0
-./scripts/version.sh bump major     # 1.3.0 -> 2.0.0
+# Version is automatically extracted from git tags at build time
+git describe --tags  # Show current version
+
+# Creating a new release (git tags are the source of truth)
+git tag -a v1.4.0 -m "Release v1.4.0: Description"
+git push origin v1.4.0  # Triggers automated release build
 ```
+
+**Version is auto-generated from git** - no manual version file maintenance!
 
 **See [QUALITY_ASSURANCE.md](docs/QUALITY_ASSURANCE.md) for complete documentation.**
 

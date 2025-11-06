@@ -11,34 +11,45 @@ jobs:
     steps:
     - uses: actions/checkout@v3
       with:
-        fetch-depth: 0
+        fetch-depth: 0  # Fetch all history for git describe
 
     - name: Extract version from tag
       id: version
       run: |
-        TAG=${GITHUB_REF#refs/tags/v}
-        echo "version=$TAG" >> $GITHUB_OUTPUT
-
-    - name: Update VERSION file
-      run: |
-        echo "${{ steps.version.outputs.version }}" > VERSION
-        IFS='.' read -r major minor patch <<< "${{ steps.version.outputs.version }}"
-        sed -i "s/REFLECTOR_VERSION_MAJOR .*/REFLECTOR_VERSION_MAJOR $major/" include/reflector.h
-        sed -i "s/REFLECTOR_VERSION_MINOR .*/REFLECTOR_VERSION_MINOR $minor/" include/reflector.h
-        sed -i "s/REFLECTOR_VERSION_PATCH .*/REFLECTOR_VERSION_PATCH $patch/" include/reflector.h
+        TAG=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG#v}
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building release for $TAG ($VERSION)"
 
     - name: Build
-      run: make clean && make
+      run: |
+        make clean
+        make
+        echo "Version in binary:"
+        ./scripts/gen-version.sh
 
     - name: Generate changelog excerpt
       id: changelog
       run: |
         # Extract changelog for this version
-        awk '/^## \[${{ steps.version.outputs.version }}\]/,/^## \[/{print; if (/^## \[/ && !/^## \[${{ steps.version.outputs.version }}\]/) exit}' CHANGELOG.md > release_notes.md
+        VERSION="${{ steps.version.outputs.version }}"
+        awk "/^## \[$VERSION\]/,/^## \[/{print; if (/^## \[/ && !/^## \[$VERSION\]/) exit}" \
+          CHANGELOG.md > release_notes.md || true
+
+        # If no changelog entry found, create generic one
+        if [ ! -s release_notes.md ]; then
+          echo "## Release ${{ steps.version.outputs.tag }}" > release_notes.md
+          echo "" >> release_notes.md
+          echo "See commit history for details." >> release_notes.md
+        fi
+
+        cat release_notes.md
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
+        name: Release ${{ steps.version.outputs.tag }}
         body_path: release_notes.md
         files: |
           reflector-linux
@@ -47,11 +58,3 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Commit version updates
-      run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        git add VERSION include/reflector.h
-        git commit -m "chore: update version to ${{ steps.version.outputs.version }} [skip ci]" || true
-        git push origin HEAD:main || true
