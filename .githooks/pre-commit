@@ -43,6 +43,30 @@ if git diff --cached --check 2>&1 | grep -q "trailing whitespace"; then
     ERRORS=$((ERRORS + 1))
 fi
 
+# Code formatting: clang-format
+if command -v clang-format >/dev/null 2>&1; then
+    echo "🎨 Checking code formatting..."
+    UNFORMATTED_FILES=""
+    for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(c|h)$'); do
+        if [ -f "$file" ]; then
+            # Check if file would be modified by clang-format
+            if ! clang-format --dry-run --Werror "$file" >/dev/null 2>&1; then
+                UNFORMATTED_FILES="$UNFORMATTED_FILES\n  $file"
+            fi
+        fi
+    done
+
+    if [ -n "$UNFORMATTED_FILES" ]; then
+        echo "❌ Code formatting issues detected in:$UNFORMATTED_FILES"
+        echo "   Run: clang-format -i <file> to fix formatting"
+        echo "   Or run: find src include -name '*.[ch]' -exec clang-format -i {} +"
+        ERRORS=$((ERRORS + 1))
+    fi
+else
+    echo "⚠️  clang-format not found, skipping format check"
+    echo "   Install with: brew install clang-format (macOS) or apt install clang-format (Linux)"
+fi
+
 # Check if we have uncommitted changes to source files
 if git diff --cached --name-only | grep -qE '\.(c|h)$'; then
     echo "🧪 Source files modified - running tests..."
