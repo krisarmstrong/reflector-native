@@ -3,7 +3,7 @@
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
 
 High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld network test tools.
 
@@ -11,7 +11,7 @@ High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld networ
 
 This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
 
-**Current Version:** 1.0.1 (January 2025)
+**Current Version:** 1.1.0 (January 2025) - Enhanced statistics and logging
 
 ## Architecture
 
