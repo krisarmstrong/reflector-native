@@ -19,6 +19,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <linux/if_link.h>
 #include <linux/if_xdp.h>
 #include <bpf/libbpf.h>
