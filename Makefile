@@ -65,7 +65,11 @@ $(TARGET): $(ALL_OBJS)
 # Compile eBPF program (Linux only)
 src/xdp/filter.bpf.o: src/xdp/filter.bpf.c
 	@echo "Compiling eBPF program..."
-	$(CLANG) -O2 -g -target bpf -c $< -o $@
+	$(CLANG) -O2 -g -target bpf \
+		-I/usr/include/$(shell uname -m)-linux-gnu \
+		-I/usr/src/linux-headers-$(shell uname -r)/include \
+		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(shell uname -m)/include \
+		-c $< -o $@
 
 # Clean build artifacts
 clean:
