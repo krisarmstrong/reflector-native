@@ -1,217 +1,283 @@
 # Network Reflector - Native Linux/macOS Implementation
 
+[![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
+[![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+
 High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld network test tools.
 
 ## Overview
 
-This project provides line-rate packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. It's designed to achieve 10G line rate performance on Linux using AF_XDP zero-copy technology.
+This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
+
+**Current Version:** 1.0.1 (January 2025)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Control Plane (Go)                                 │
-│  - TUI/CLI interface                                │
-│  - Configuration management                          │
-│  - Statistics collection/display                    │
-│  - IPC with dataplane                               │
-└────────────────┬────────────────────────────────────┘
-                 │ (Unix socket)
-┌────────────────┴────────────────────────────────────┐
 │  Data Plane (C)                                     │
-│  - Linux: AF_XDP with eBPF filtering                │
+│  - Linux: AF_PACKET with optimized zero-copy       │
 │  - macOS: BPF packet filtering                      │
-│  - Zero-copy packet reflection                      │
-│  - Multi-queue support (Linux)                      │
+│  - In-place packet header swapping                  │
+│  - Platform abstraction layer                       │
+│  - CLI interface with statistics                    │
 └─────────────────────────────────────────────────────┘
 ```
 
-## Features
+## Current Features
 
-### Linux (AF_XDP)
-- **Line-rate performance**: Up to 10G with modern NICs
-- **Zero-copy**: Shared memory between kernel and userspace
-- **Multi-queue**: Per-CPU processing threads
-- **eBPF filtering**: Kernel-level packet classification
-- **No kernel module**: Uses standard kernel features (5.3+)
+### Linux
+- **AF_PACKET**: Optimized packet socket with zero-copy receive
+- **Platform compatibility**: Works with all NICs (no special driver needed)
+- **Efficient processing**: No malloc in hot path, blocking recv with timeout
+- **Tested**: Ubuntu 25.10 with various network adapters
 
-### macOS (BPF)
-- **BPF filtering**: Native packet capture and injection
-- **Performance**: Line rate with 1500-byte frames
+### macOS
+- **BPF filtering**: Native packet capture and injection via /dev/bpf
 - **Compatibility**: Works with all NICs
+- **Tested**: macOS 14+ with Thunderbolt and USB-C adapters
+- **Performance**: 99.96% reflection rate at 1 Mbps with 1518-byte frames
 
-## Performance Targets
+### Common
+- **Zero-copy reflection**: In-place MAC/IP/UDP header swapping
+- **ITO protocol support**: PROBEOT, DATA:OT, LATENCY signatures
+- **Verbose logging**: Optional detailed packet processing output
+- **Platform abstraction**: Clean separation between platform-specific and common code
 
-| Platform | Packet Size | Expected Performance | Line Rate % |
-|----------|-------------|---------------------|-------------|
-| Linux (modern NIC) | 64 bytes | 10-14 Mpps | 85-100% |
-| Linux (modern NIC) | 1500 bytes | 812K+ pps | 100% |
-| macOS | 64 bytes | 0.5-1.5 Mpps | 5-15% |
-| macOS | 1500 bytes | 600-800K pps | 75-100% |
+## Performance
+
+### Current v1.0.1
+| Platform | Test Rate | Packet Size | Result |
+|----------|-----------|-------------|---------|
+| macOS | 1 Mbps | 1518 bytes | 99.96% (4970/4972 packets) |
+| macOS | 1 Gbps | 1518 bytes | Limited to ~50 Mbps max |
+| Linux | 1 Mbps | 1518 bytes | Stable operation |
+
+### Known Limitations
+- **macOS BPF**: Limited to 10-50 Mbps regardless of hardware (architectural limitation)
+- **Linux AF_PACKET**: Better than macOS but not line-rate (suitable for lab testing)
+- **See ROADMAP.md** for planned AF_XDP implementation for 10G line-rate on Linux
 
 ## Requirements
 
 ### Linux
-- Kernel 5.3+ (for AF_XDP)
-- libbpf-dev
-- libxdp-dev
-- clang (for eBPF compilation)
-- NIC with XDP support (Intel i40e, ice, ixgbe, or Mellanox mlx5)
+- Linux kernel (tested on Ubuntu 25.10)
+- gcc or clang
+- make
+- sudo/root access (for raw socket operations)
 
 ### macOS
-- macOS 10.14+
+- macOS 10.14+ (tested on macOS 14+)
 - Xcode Command Line Tools
-
-### Both
-- Go 1.21+ (for control plane)
-- gcc or clang
+- sudo/root access (for BPF device access)
 
 ## Building
 
 ```bash
-# Linux
-make linux
+# Clone repository
+git clone https://github.com/krisarmstrong/reflector-native.git
+cd reflector-native
 
-# macOS
-make macos
+# Build for your platform
+make
 
-# Both (if on Linux)
-make all
+# This creates:
+# - reflector-macos (on macOS)
+# - reflector-linux (on Linux)
 ```
 
-## Installation
+## Testing
 
 ```bash
-sudo make install
+# Run unit tests
+make test
+
+# Tests validate:
+# - ITO packet signature detection
+# - Packet header reflection logic
+# - Platform abstraction layer
 ```
 
 ## Usage
 
-### Start Reflector
+### Basic Usage
 ```bash
-# Linux
-sudo reflector-native -i eth0
-
 # macOS
-sudo reflector-native -i en0
+sudo ./reflector-macos en0
 
-# With control UI
-reflector-ui
+# Linux
+sudo ./reflector-linux eth0
+
+# Verbose mode (shows packet details)
+sudo ./reflector-macos en0 -v
 ```
 
-### Configuration
+### Finding Your Interface
 ```bash
-# Enable reflection on interface
-reflector-ctl enable eth0
+# macOS
+ifconfig | grep "^en"
 
-# Disable reflection
-reflector-ctl disable eth0
-
-# Show statistics
-reflector-ctl stats
-
-# Show all interfaces
-reflector-ctl list
+# Linux
+ip link show
 ```
 
-## NIC Tuning (Linux)
+### Example Output
+```
+Reflector started on interface: en10
+Interface MAC: aa:bb:cc:dd:ee:ff
+Listening for ITO packets on UDP port 3842...
+Press Ctrl+C to stop
 
-For optimal performance:
-
-```bash
-# Increase ring buffer sizes
-sudo ethtool -G eth0 rx 4096 tx 4096
-
-# Enable multi-queue (RSS)
-sudo ethtool -L eth0 combined 4
-
-# Disable interfering offloads
-sudo ethtool -K eth0 gro off lro off
-
-# Pin IRQs to CPUs
-sudo ./scripts/set_irq_affinity.sh eth0
+Statistics (every 10 seconds):
+[10.0s] RX: 4972 pkts (7586496 bytes) | Reflected: 4970 pkts | 497 pps, 6.1 Mbps
+[20.0s] RX: 9944 pkts (15172992 bytes) | Reflected: 9940 pkts | 497 pps, 6.1 Mbps
 ```
 
-## Supported NICs
-
-### Linux (Native XDP)
-- Intel X710/XL710 (i40e driver)
-- Intel E810 (ice driver)
-- Intel 82599/X520/X540 (ixgbe driver)
-- Mellanox ConnectX-4/5 (mlx5 driver)
-
-### Linux (Generic XDP)
-- All NICs (with reduced performance)
-
-### macOS
-- All NICs via BPF
+### Stopping the Reflector
+Press `Ctrl+C` to gracefully stop and show final statistics.
 
 ## Protocol Support
 
-Currently reflects ITO (Integrated Test & Optimization) packets with signatures:
-- `PROBEOT` - OneTouch probe packets
+### ITO (Integrated Test & Optimization) Packets
+
+Reflects packets with these signatures at offset 5 in UDP payload:
+- `PROBEOT` - OneTouch/LinkRunner probe packets
 - `DATA:OT` - OneTouch data packets
 - `LATENCY` - Latency measurement packets
 
-Packets must be:
-- IPv4 UDP
-- Addressed to interface MAC
-- Minimum 54 bytes
+### Requirements
+- **Transport**: IPv4 UDP on port 3842
+- **Addressing**: Unicast to interface MAC address
+- **Size**: Minimum 54 bytes (Ethernet + IP + UDP headers + signature)
+- **Header**: 5-byte proprietary header before ITO signature
+
+### Tested With
+- NetAlly LinkRunner 10G
+- Fluke Networks OneTouch series
+- NETSCOUT handheld test tools
 
 ## Project Structure
 
 ```
 reflector-native/
 ├── src/
-│   ├── dataplane/          # C data plane implementations
-│   │   ├── common/         # Shared packet parsing/reflection
-│   │   ├── linux_xdp/      # Linux AF_XDP implementation
-│   │   └── macos_bpf/      # macOS BPF implementation
-│   ├── control/            # Go control plane
-│   │   ├── ui/             # TUI interface
-│   │   ├── stats/          # Statistics aggregation
-│   │   └── config/         # Configuration management
-│   └── xdp/                # eBPF programs
-│       └── filter.bpf.c    # XDP filter
+│   └── dataplane/          # C data plane implementations
+│       ├── common/         # Platform-agnostic packet logic
+│       │   ├── packet.c    # ITO validation & reflection
+│       │   ├── util.c      # Interface/MAC utilities
+│       │   ├── core.c      # Worker thread management
+│       │   └── main.c      # CLI entry point
+│       ├── linux_packet/   # Linux AF_PACKET implementation
+│       │   └── packet_platform.c
+│       └── macos_bpf/      # macOS BPF implementation
+│           └── bpf_platform.c
 ├── include/                # Header files
+│   └── reflector.h        # Core definitions & platform API
+├── tests/                  # Unit tests
+│   └── test_packet_validation.c
 ├── docs/                   # Documentation
-├── scripts/                # Utility scripts
-└── build/                  # Build output
+│   ├── ARCHITECTURE.md    # Design details
+│   ├── PERFORMANCE.md     # Performance tuning
+│   └── QUICKSTART.md      # Getting started
+├── .github/
+│   ├── workflows/         # CI/CD automation
+│   │   ├── ci.yml        # Build & test
+│   │   ├── security.yml  # Security scanning
+│   │   └── release.yml   # Release automation
+│   └── PULL_REQUEST_TEMPLATE.md
+├── .githooks/             # Git hooks
+│   └── pre-commit        # Pre-commit validation
+├── scripts/               # Utility scripts
+│   └── install-hooks.sh  # Install git hooks
+├── CHANGELOG.md           # Version history
+├── SECURITY.md            # Security policy
+├── CONTRIBUTING.md        # Contribution guidelines
+└── ROADMAP.md             # Future plans
 ```
 
 ## Development
 
-### Building eBPF (Linux)
+### Building from Source
 ```bash
-cd src/xdp
-clang -O2 -target bpf -c filter.bpf.c -o filter.bpf.o
+git clone https://github.com/krisarmstrong/reflector-native.git
+cd reflector-native
+make
 ```
 
-### Testing
+### Git Hooks
 ```bash
-# Run test suite
+# Install pre-commit hooks (recommended)
+./scripts/install-hooks.sh
+
+# Pre-commit hook runs:
+# - Secret detection
+# - Large file check
+# - Tests on source changes
+```
+
+### Running Tests
+```bash
+# Unit tests
 make test
 
-# Performance benchmark
-make benchmark
+# Manual testing with network tool
+sudo ./reflector-macos en0 -v
+# Then send ITO packets from LinkRunner/OneTouch
 ```
+
+### CI/CD
+- **GitHub Actions**: Automated builds for Linux and macOS
+- **Security scanning**: CodeQL, Gitleaks, cppcheck
+- **Release automation**: Tag-based releases with changelogs
 
 ## Contributing
 
-This project is designed for network testing and diagnostic purposes.
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup
+- Coding standards
+- Git workflow and commit conventions
+- Testing requirements
+- Pull request process
+
+## Security
+
+Security is important for network tools. See [SECURITY.md](SECURITY.md) for:
+- Reporting vulnerabilities
+- Security considerations
+- Deployment best practices
+- Known limitations
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned features including:
+- AF_XDP implementation for 10G line-rate on Linux
+- Go control plane with TUI
+- Additional protocol support
+- Performance enhancements
 
 ## License
 
-See LICENSE file for details.
+MIT License - Copyright (c) 2025 Kris Armstrong
+
+See [LICENSE](LICENSE) file for full details.
 
 ## Credits
 
-- Original Windows Reflector: Fluke Networks
-- Linux/macOS Native Implementation: Kris Armstrong (2025)
-- Built for NETSCOUT/NetAlly handheld network test tools
+- **Author**: Kris Armstrong (2025)
+- **Inspired by**: Fluke Networks Windows Reflector
+- **Built for**: NETSCOUT, NetAlly, and Fluke Networks handheld test tools
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/krisarmstrong/reflector-native/issues)
+- **Documentation**: [docs/](docs/)
+- **Discussions**: [GitHub Discussions](https://github.com/krisarmstrong/reflector-native/discussions)
 
 ## References
 
-- [AF_XDP Documentation](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
-- [BPF Documentation](https://www.freebsd.org/cgi/man.cgi?bpf)
-- [XDP Tutorial](https://github.com/xdp-project/xdp-tutorial)
+- [AF_PACKET(7) man page](https://man7.org/linux/man-pages/man7/packet.7.html)
+- [BPF(4) man page](https://man.freebsd.org/cgi/bpf)
+- [AF_XDP Documentation](https://www.kernel.org/doc/html/latest/networking/af_xdp.html) (future implementation)
+- [XDP Tutorial](https://github.com/xdp-project/xdp-tutorial) (future implementation)

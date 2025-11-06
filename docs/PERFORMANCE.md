@@ -1,8 +1,40 @@
 # Performance Guide
 
-## Expected Performance
+> **Note:** This document describes both current v1.0.1 performance and planned future performance with AF_XDP (v2.0+).
+> Sections marked with 🚀 indicate future planned features. See [ROADMAP.md](../ROADMAP.md) for timeline.
 
-### Linux (AF_XDP)
+## Current Performance (v1.0.1)
+
+### Linux (AF_PACKET)
+
+| Packet Size | Test Rate | Result |
+|-------------|-----------|---------|
+| 1518 bytes | 1 Mbps | Stable operation |
+| 1518 bytes | 10 Mbps | Limited performance |
+
+**Current Implementation:**
+- AF_PACKET socket-based capture
+- Single-threaded processing
+- Works with all network adapters
+- Suitable for lab testing and low-rate scenarios
+
+### macOS (BPF)
+
+| Packet Size | Test Rate | Result |
+|-------------|-----------|---------|
+| 1518 bytes | 1 Mbps | 99.96% success (4970/4972 packets) |
+| 1518 bytes | 1 Gbps | Limited to ~50 Mbps max |
+
+**Current Limitations:**
+- BPF architectural limitations
+- Maximum ~10-50 Mbps regardless of hardware
+- Suitable for lab testing only
+
+---
+
+## 🚀 Planned Performance (v2.0+ with AF_XDP)
+
+### Linux (AF_XDP) - Planned v2.0
 
 | NIC Type | Packet Size | Expected PPS | Line Rate @ 10G |
 |----------|-------------|--------------|-----------------|
@@ -12,15 +44,29 @@
 | Generic XDP | 64 bytes | 1-3 Mpps | 10-20% |
 | Generic XDP | 1500 bytes | 400-600K pps | 50-75% |
 
-### macOS (BPF)
+### macOS (BPF) - No Change Planned
 
-| Packet Size | Expected PPS | Line Rate @ 10G |
-|-------------|--------------|-----------------|
-| 64 bytes | 0.5-1.5 Mpps | 5-15% |
-| 512 bytes | 0.8-1.2 Mpps | 40-60% |
-| 1500 bytes | 600-800K pps | 75-100% |
+macOS will continue using BPF in v2.0+ due to platform limitations.
+Performance improvements will come from optimizations within BPF constraints.
 
-## Linux Optimization
+---
+
+## Current Optimization (v1.0.1)
+
+### Linux AF_PACKET
+
+Current implementation requires minimal tuning:
+- Ensure interface is UP
+- Use verbose mode (`-v`) for debugging
+- Monitor with system tools
+
+### macOS BPF
+
+No tuning available - architectural limitations apply.
+
+---
+
+## 🚀 Planned Linux Optimization (v2.0+ with AF_XDP)
 
 ### 1. NIC Selection
 
@@ -115,31 +161,30 @@ Monitor XDP statistics:
 sudo bpftool prog show | grep xdp
 ```
 
-## macOS Optimization
+## Current macOS Optimization (v1.0.1)
 
-### 1. Buffer Size
+### System Tuning
 
-BPF buffer is pre-configured to 4MB for optimal batching. No tuning available.
-
-### 2. System Tuning
-
-Increase socket buffers:
+Increase socket buffers (optional):
 ```bash
 sudo sysctl -w kern.ipc.maxsockbuf=16777216
 ```
 
-### 3. Performance Expectations
+### Performance Expectations
 
-macOS limitations:
+Current v1.0.1 limitations:
 - No zero-copy (all packets copied)
 - No multi-queue support
 - Single-threaded packet processing
 - BPF API overhead
+- Maximum ~10-50 Mbps throughput
 
 Best results:
-- Use with 1500-byte MTU traffic
-- Achieves line rate at 10G with typical frame sizes
-- Small packet performance limited to ~1.5 Mpps max
+- Use with 1 Mbps test rates
+- 1518-byte frames work well
+- Suitable for lab/development testing
+
+**Note:** For production line-rate testing, use Linux with planned AF_XDP implementation (v2.0+).
 
 ## Benchmarking
 
