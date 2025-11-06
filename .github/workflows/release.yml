@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        TAG=${GITHUB_REF#refs/tags/v}
+        echo "version=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Update VERSION file
+      run: |
+        echo "${{ steps.version.outputs.version }}" > VERSION
+        IFS='.' read -r major minor patch <<< "${{ steps.version.outputs.version }}"
+        sed -i "s/REFLECTOR_VERSION_MAJOR .*/REFLECTOR_VERSION_MAJOR $major/" include/reflector.h
+        sed -i "s/REFLECTOR_VERSION_MINOR .*/REFLECTOR_VERSION_MINOR $minor/" include/reflector.h
+        sed -i "s/REFLECTOR_VERSION_PATCH .*/REFLECTOR_VERSION_PATCH $patch/" include/reflector.h
+
+    - name: Build
+      run: make clean && make
+
+    - name: Generate changelog excerpt
+      id: changelog
+      run: |
+        # Extract changelog for this version
+        awk '/^## \[${{ steps.version.outputs.version }}\]/,/^## \[/{print; if (/^## \[/ && !/^## \[${{ steps.version.outputs.version }}\]/) exit}' CHANGELOG.md > release_notes.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: release_notes.md
+        files: |
+          reflector-linux
+          reflector-macos
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Commit version updates
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add VERSION include/reflector.h
+        git commit -m "chore: update version to ${{ steps.version.outputs.version }} [skip ci]" || true
+        git push origin HEAD:main || true

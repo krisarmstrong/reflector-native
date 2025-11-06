@@ -100,12 +100,21 @@ uninstall:
 	rm -rf /usr/local/lib/reflector
 	@echo "Uninstall complete"
 
+# Test
+test: $(TARGET)
+	@echo "Running tests..."
+	$(CC) $(CFLAGS) $(INCLUDES) tests/test_packet_validation.c \
+		src/dataplane/common/packet.o src/dataplane/common/util.o -o tests/test_packet
+	@./tests/test_packet
+	@echo "All tests passed!"
+
 # Help
 help:
 	@echo "Network Reflector Build System"
 	@echo ""
 	@echo "Targets:"
 	@echo "  all       - Build reflector for current platform"
+	@echo "  test      - Run unit tests"
 	@echo "  clean     - Remove build artifacts"
 	@echo "  install   - Install to /usr/local/bin (requires sudo)"
 	@echo "  uninstall - Remove installed files"
@@ -114,4 +123,4 @@ help:
 	@echo "Platform: $(UNAME_S)"
 	@echo "Target:   $(TARGET)"
 
-.PHONY: all clean install uninstall help
+.PHONY: all test clean install uninstall help

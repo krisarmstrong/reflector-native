@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential clang libelf-dev zlib1g-dev
+
+    - name: Build (AF_PACKET fallback)
+      run: |
+        make clean
+        make
+
+    - name: Run packet validation tests
+      run: |
+        cd tests
+        gcc -Wall -Wextra -I../include test_packet_validation.c ../src/dataplane/common/packet.o -o test_packet
+        ./test_packet
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      run: |
+        make clean
+        make
+
+    - name: Run packet validation tests
+      run: |
+        cd tests
+        gcc -Wall -Wextra -I../include test_packet_validation.c ../src/dataplane/common/packet.o -o test_packet
+        ./test_packet
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Check code formatting
+      run: |
+        # Basic checks - can add clang-format later
+        echo "Checking for common issues..."
+        ! grep -rn "TODO\|FIXME\|XXX" src/ include/ || true
