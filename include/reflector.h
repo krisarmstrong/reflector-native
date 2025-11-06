@@ -15,7 +15,32 @@
 /* Version information */
 #define REFLECTOR_VERSION_MAJOR 1
 #define REFLECTOR_VERSION_MINOR 1
-#define REFLECTOR_VERSION_PATCH 0
+#define REFLECTOR_VERSION_PATCH 1
+
+/* Compiler hints for branch prediction */
+#ifdef __GNUC__
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x)   (x)
+#define unlikely(x) (x)
+#endif
+
+/* Force inline for hot path functions */
+#ifdef __GNUC__
+#define ALWAYS_INLINE __attribute__((always_inline)) inline
+#else
+#define ALWAYS_INLINE inline
+#endif
+
+/* Memory prefetch hints */
+#ifdef __GNUC__
+#define PREFETCH_READ(addr)  __builtin_prefetch(addr, 0, 3)
+#define PREFETCH_WRITE(addr) __builtin_prefetch(addr, 1, 3)
+#else
+#define PREFETCH_READ(addr)  ((void)0)
+#define PREFETCH_WRITE(addr) ((void)0)
+#endif
 
 /* Configuration constants */
 #define MAX_IFNAME_LEN 16
