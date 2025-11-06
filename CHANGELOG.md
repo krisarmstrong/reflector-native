@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-01-06
+
+### Added
+- **Enhanced Statistics**: Per-signature packet counters (PROBEOT, DATA:OT, LATENCY)
+- **Latency Measurements**: Optional per-packet RX-to-TX latency tracking (min/avg/max)
+- **JSON Output Format**: Machine-readable statistics output with `--json` flag
+- **CSV Output Format**: CSV statistics output with `--csv` flag for logging/analysis
+- **Detailed Error Categorization**: 7 specific error types tracked separately:
+  - Invalid MAC address
+  - Invalid EtherType
+  - Invalid IP protocol
+  - Invalid ITO signature
+  - Packet too short
+  - TX failed
+  - Memory allocation failures
+- **Configurable Statistics Interval**: `--stats-interval N` to control update frequency
+- **Help System**: `-h`/`--help` flag for usage information
+
+### Changed
+- Statistics structure now includes detailed breakdowns by packet type
+- Text output now shows signature breakdown and latency when available
+- Final statistics report includes comprehensive breakdown of all metrics
+- Default statistics interval changed from 1 second to 10 seconds
+- CLI now supports long-form options (e.g., `--verbose`, `--help`)
+
+### Performance
+- Statistics tracking adds per-signature type detection (minimal overhead)
+- Optional latency measurement (disabled by default for zero-overhead)
+- All new statistics use zero-copy update mechanisms
+
+### Documentation
+- Updated help text with all new options
+- Enhanced final statistics output format
+
 ## [1.0.1] - 2025-01-06
 
 ### Fixed

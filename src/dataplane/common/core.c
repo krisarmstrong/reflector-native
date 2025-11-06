@@ -60,8 +60,20 @@ static void* worker_thread(void *arg)
         num_tx = 0;
         for (int i = 0; i < rcvd; i++) {
             if (is_ito_packet(pkts_rx[i].data, pkts_rx[i].len, wctx->config->mac)) {
+                /* Get signature type for statistics */
+                ito_sig_type_t sig_type = get_ito_signature_type(pkts_rx[i].data, pkts_rx[i].len);
+                update_signature_stats(&wctx->stats, sig_type);
+
                 /* Reflect in-place */
                 reflect_packet_inplace(pkts_rx[i].data, pkts_rx[i].len);
+
+                /* Measure latency if enabled */
+                if (wctx->config->measure_latency) {
+                    uint64_t tx_time = get_timestamp_ns();
+                    uint64_t latency_ns = tx_time - pkts_rx[i].timestamp;
+                    update_latency_stats(&wctx->stats.latency, latency_ns);
+                }
+
                 pkts_tx[num_tx++] = pkts_rx[i];
             } else {
                 /* Not ITO packet, release buffer */
@@ -73,7 +85,13 @@ static void* worker_thread(void *arg)
 
         /* Send reflected packets */
         if (num_tx > 0) {
-            platform_ops->send_batch(wctx, pkts_tx, num_tx);
+            int sent = platform_ops->send_batch(wctx, pkts_tx, num_tx);
+            if (sent < 0) {
+                /* Track TX failures */
+                for (int i = 0; i < num_tx; i++) {
+                    update_error_stats(&wctx->stats, ERR_TX_FAILED);
+                }
+            }
         }
     }
 

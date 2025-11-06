@@ -14,8 +14,8 @@
 
 /* Version information */
 #define REFLECTOR_VERSION_MAJOR 1
-#define REFLECTOR_VERSION_MINOR 0
-#define REFLECTOR_VERSION_PATCH 1
+#define REFLECTOR_VERSION_MINOR 1
+#define REFLECTOR_VERSION_PATCH 0
 
 /* Configuration constants */
 #define MAX_IFNAME_LEN 16
@@ -61,36 +61,103 @@
 /* IP Protocol values */
 #define IPPROTO_UDP 17
 
+/* ITO packet signature types (for statistics) */
+typedef enum {
+	ITO_SIG_TYPE_PROBEOT = 0,
+	ITO_SIG_TYPE_DATAOT = 1,
+	ITO_SIG_TYPE_LATENCY = 2,
+	ITO_SIG_TYPE_UNKNOWN = 3,
+	ITO_SIG_TYPE_COUNT = 4
+} ito_sig_type_t;
+
+/* Error category types */
+typedef enum {
+	ERR_RX_INVALID_MAC = 0,     /* Wrong destination MAC */
+	ERR_RX_INVALID_ETHERTYPE,   /* Not IPv4 */
+	ERR_RX_INVALID_PROTOCOL,    /* Not UDP */
+	ERR_RX_INVALID_SIGNATURE,   /* No ITO signature */
+	ERR_RX_TOO_SHORT,           /* Packet too short */
+	ERR_TX_FAILED,              /* Transmission failed */
+	ERR_RX_NOMEM,               /* Memory allocation failed */
+	ERR_CATEGORY_COUNT
+} error_category_t;
+
+/* Latency statistics */
+typedef struct {
+	uint64_t count;              /* Number of measurements */
+	uint64_t total_ns;           /* Total latency in nanoseconds */
+	uint64_t min_ns;             /* Minimum latency */
+	uint64_t max_ns;             /* Maximum latency */
+	double avg_ns;               /* Average latency */
+} latency_stats_t;
+
 /* Statistics structure */
 typedef struct {
-    uint64_t packets_received;
-    uint64_t packets_reflected;
-    uint64_t packets_dropped;
-    uint64_t bytes_received;
-    uint64_t bytes_reflected;
-    uint64_t rx_invalid;        /* Failed packet validation */
-    uint64_t rx_nomem;          /* Memory allocation failures */
-    uint64_t tx_errors;         /* Transmission errors */
-    uint64_t poll_timeout;      /* Poll timeouts */
-    double   pps;               /* Packets per second (reflected) */
-    double   mbps;              /* Megabits per second (reflected) */
+	/* Basic packet counters */
+	uint64_t packets_received;
+	uint64_t packets_reflected;
+	uint64_t packets_dropped;
+	uint64_t bytes_received;
+	uint64_t bytes_reflected;
+
+	/* Per-signature counters */
+	uint64_t sig_probeot_count;
+	uint64_t sig_dataot_count;
+	uint64_t sig_latency_count;
+	uint64_t sig_unknown_count;
+
+	/* Error counters by category */
+	uint64_t err_invalid_mac;
+	uint64_t err_invalid_ethertype;
+	uint64_t err_invalid_protocol;
+	uint64_t err_invalid_signature;
+	uint64_t err_too_short;
+	uint64_t err_tx_failed;
+	uint64_t err_nomem;
+
+	/* Legacy error counters (for compatibility) */
+	uint64_t rx_invalid;        /* Total validation failures */
+	uint64_t rx_nomem;          /* Memory allocation failures */
+	uint64_t tx_errors;         /* Transmission errors */
+	uint64_t poll_timeout;      /* Poll timeouts */
+
+	/* Latency measurements */
+	latency_stats_t latency;
+
+	/* Performance metrics */
+	double pps;                  /* Packets per second (reflected) */
+	double mbps;                 /* Megabits per second (reflected) */
+
+	/* Timing */
+	uint64_t start_time_ns;      /* Start timestamp */
+	uint64_t last_update_ns;     /* Last update timestamp */
 } reflector_stats_t;
+
+/* Statistics output format */
+typedef enum {
+	STATS_FORMAT_TEXT,           /* Human-readable text format */
+	STATS_FORMAT_JSON,           /* Machine-readable JSON format */
+	STATS_FORMAT_CSV             /* CSV format for logging */
+} stats_format_t;
 
 /* Configuration structure */
 typedef struct {
-    char ifname[MAX_IFNAME_LEN];    /* Interface name */
-    int ifindex;                     /* Interface index */
-    uint8_t mac[6];                  /* Interface MAC address */
-    int num_workers;                 /* Number of worker threads */
-    bool enable_stats;               /* Enable statistics collection */
-    bool promiscuous;                /* Enable promiscuous mode */
-    bool zero_copy;                  /* Enable zero-copy mode (if supported) */
-    int batch_size;                  /* Packet batch size */
-    int frame_size;                  /* Frame size in UMEM */
-    int num_frames;                  /* Number of frames in UMEM */
-    int queue_id;                    /* RX/TX queue ID (-1 for auto) */
-    bool busy_poll;                  /* Enable busy polling */
-    int poll_timeout_ms;             /* Poll timeout in milliseconds */
+	char ifname[MAX_IFNAME_LEN];    /* Interface name */
+	int ifindex;                     /* Interface index */
+	uint8_t mac[6];                  /* Interface MAC address */
+	int num_workers;                 /* Number of worker threads */
+	bool enable_stats;               /* Enable statistics collection */
+	bool promiscuous;                /* Enable promiscuous mode */
+	bool zero_copy;                  /* Enable zero-copy mode (if supported) */
+	int batch_size;                  /* Packet batch size */
+	int frame_size;                  /* Frame size in UMEM */
+	int num_frames;                  /* Number of frames in UMEM */
+	int queue_id;                    /* RX/TX queue ID (-1 for auto) */
+	bool busy_poll;                  /* Enable busy polling */
+	int poll_timeout_ms;             /* Poll timeout in milliseconds */
+	bool measure_latency;            /* Enable latency measurements */
+	stats_format_t stats_format;     /* Statistics output format */
+	int stats_interval_sec;          /* Statistics display interval (seconds) */
 } reflector_config_t;
 
 /* Packet descriptor */
@@ -173,7 +240,16 @@ uint64_t get_timestamp_ns(void);
 
 /* Packet validation and reflection */
 bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6]);
+ito_sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len);
 void reflect_packet_inplace(uint8_t *data, uint32_t len);
+
+/* Statistics helpers */
+void update_signature_stats(reflector_stats_t *stats, ito_sig_type_t sig_type);
+void update_latency_stats(latency_stats_t *latency, uint64_t latency_ns);
+void update_error_stats(reflector_stats_t *stats, error_category_t err_cat);
+void reflector_print_stats_formatted(const reflector_stats_t *stats, stats_format_t format);
+void reflector_print_stats_json(const reflector_stats_t *stats);
+void reflector_print_stats_csv(const reflector_stats_t *stats);
 
 /* Platform detection */
 const platform_ops_t* get_platform_ops(void);
