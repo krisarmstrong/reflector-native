@@ -1,0 +1,26 @@
+#!/bin/bash
+# Pre-commit hook: run tests before allowing commit
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check if we have uncommitted changes to source files
+if git diff --cached --name-only | grep -qE '\.(c|h)$'; then
+    echo "Source files modified - running tests..."
+
+    # Build and test
+    make clean > /dev/null 2>&1
+    make > /dev/null 2>&1
+
+    if ! make test; then
+        echo "❌ Tests failed! Commit aborted."
+        echo "Fix the tests or use 'git commit --no-verify' to skip (not recommended)"
+        exit 1
+    fi
+
+    echo "✅ All tests passed!"
+fi
+
+echo "✅ Pre-commit checks complete"
+exit 0
