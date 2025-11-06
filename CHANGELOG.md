@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-01-06
+
+### Fixed
+- ITO packet signature offset (changed from 6 to 5 bytes for LinkRunner 10G compatibility)
+- AF_PACKET performance: eliminated malloc() per packet (300x performance improvement)
+- AF_PACKET packet loss: use blocking recv with 1ms timeout instead of busy-polling
+- AF_XDP initialization now works without eBPF filter (SKB mode fallback)
+- Linux compilation issues: added _GNU_SOURCE, sys/socket.h, fcntl.h headers
+- XDP header path for Ubuntu (xdp/xsk.h instead of bpf/xsk.h)
+- Platform detection now gracefully falls back to AF_PACKET when AF_XDP unsupported
+
+### Changed
+- AF_PACKET now uses zero-copy approach (direct buffer pointers)
+- eBPF filter compilation failures are non-fatal (AF_XDP works without filter)
+- Improved error messages and warnings for unsupported NICs
+
 ## [1.0.0] - 2025-01-05
 
 ### Added

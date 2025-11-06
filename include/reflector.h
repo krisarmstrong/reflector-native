@@ -15,7 +15,7 @@
 /* Version information */
 #define REFLECTOR_VERSION_MAJOR 1
 #define REFLECTOR_VERSION_MINOR 0
-#define REFLECTOR_VERSION_PATCH 0
+#define REFLECTOR_VERSION_PATCH 1
 
 /* Configuration constants */
 #define MAX_IFNAME_LEN 16
