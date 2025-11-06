@@ -37,3 +37,4 @@ vgcore.*
 # Temporary files
 *.tmp
 *.temp
+include/version_generated.h
