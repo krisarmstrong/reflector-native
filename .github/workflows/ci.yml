@@ -49,8 +49,27 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Install clang-format
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format
+
     - name: Check code formatting
       run: |
-        # Basic checks - can add clang-format later
-        echo "Checking for common issues..."
-        ! grep -rn "TODO\|FIXME\|XXX" src/ include/ || true
+        echo "Checking code formatting with clang-format..."
+        UNFORMATTED=$(find src include tests -name '*.[ch]' -exec clang-format --dry-run --Werror {} + 2>&1 | grep -E '^.*\.(c|h):' || true)
+        if [ -n "$UNFORMATTED" ]; then
+          echo "❌ Code formatting issues found:"
+          echo "$UNFORMATTED"
+          echo ""
+          echo "Run the following to fix formatting:"
+          echo "  find src include tests -name '*.[ch]' -exec clang-format -i {} +"
+          exit 1
+        else
+          echo "✅ All files properly formatted"
+        fi
+
+    - name: Check for common issues
+      run: |
+        echo "Checking for TODO/FIXME markers..."
+        grep -rn "TODO\|FIXME\|XXX" src/ include/ tests/ || echo "✅ No TODO/FIXME markers found"
