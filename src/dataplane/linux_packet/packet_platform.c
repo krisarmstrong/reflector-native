@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <linux/if_packet.h>
@@ -100,15 +101,13 @@ int packet_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
         }
     }
 
-    /* Set socket timeout */
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = wctx->config->poll_timeout_ms * 1000;
-    if (setsockopt(pctx->sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        reflector_log(LOG_WARN, "Failed to set socket timeout: %s", strerror(errno));
+    /* Set non-blocking mode for fast polling */
+    int flags = fcntl(pctx->sock_fd, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(pctx->sock_fd, F_SETFL, flags | O_NONBLOCK);
     }
 
-    reflector_log(LOG_INFO, "AF_PACKET platform initialized on %s (fallback mode)",
+    reflector_log(LOG_INFO, "AF_PACKET platform initialized on %s (fallback mode, no-copy)",
                  wctx->config->ifname);
     return 0;
 }
@@ -133,46 +132,40 @@ void packet_platform_cleanup(worker_ctx_t *wctx)
 
 /*
  * Receive batch of packets from AF_PACKET
+ * Note: Returns packets pointing directly into buffer (no copy)
+ * Caller must process/reflect before next recv call
  */
 int packet_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
 {
     struct platform_ctx *pctx = wctx->pctx;
     int num_pkts = 0;
 
-    /* AF_PACKET doesn't batch well, read one at a time */
-    while (num_pkts < max_pkts) {
-        ssize_t n = recv(pctx->sock_fd, pctx->buffer, pctx->buffer_size, 0);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EINTR) {
-                wctx->stats.poll_timeout++;
-                break;
-            }
-            reflector_log(LOG_ERROR, "AF_PACKET recv error: %s", strerror(errno));
-            return -1;
+    /* Read one packet into buffer - no malloc, direct pointer */
+    ssize_t n = recv(pctx->sock_fd, pctx->buffer, pctx->buffer_size, MSG_DONTWAIT);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            wctx->stats.poll_timeout++;
+            return 0;
         }
-
-        if (n == 0) {
-            break;
-        }
-
-        /* Store packet (copy required since buffer is reused) */
-        uint8_t *pkt_copy = malloc(n);
-        if (!pkt_copy) {
-            wctx->stats.rx_nomem++;
-            continue;
-        }
-
-        memcpy(pkt_copy, pctx->buffer, n);
-        pkts[num_pkts].data = pkt_copy;
-        pkts[num_pkts].len = n;
-        pkts[num_pkts].addr = 0;
-        pkts[num_pkts].timestamp = get_timestamp_ns();
-
-        wctx->stats.packets_received++;
-        wctx->stats.bytes_received += n;
-        num_pkts++;
+        reflector_log(LOG_ERROR, "AF_PACKET recv error: %s", strerror(errno));
+        return -1;
     }
 
+    if (n == 0) {
+        return 0;
+    }
+
+    /* Point directly at buffer - NO MALLOC */
+    pkts[0].data = pctx->buffer;
+    pkts[0].len = n;
+    pkts[0].addr = 0;
+    pkts[0].timestamp = get_timestamp_ns();
+
+    wctx->stats.packets_received++;
+    wctx->stats.bytes_received += n;
+    num_pkts = 1;
+
+    (void)max_pkts;  /* Only process one packet at a time with this approach */
     return num_pkts;
 }
 
@@ -210,14 +203,14 @@ int packet_platform_send_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
 }
 
 /*
- * Release batch - free packet copies
+ * Release batch - no-op since we don't malloc
  */
 void packet_platform_release_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
 {
     (void)wctx;
-    for (int i = 0; i < num_pkts; i++) {
-        free(pkts[i].data);
-    }
+    (void)pkts;
+    (void)num_pkts;
+    /* No malloc, so nothing to free */
 }
 
 /* Platform operations structure */
