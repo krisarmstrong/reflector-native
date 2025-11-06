@@ -20,11 +20,23 @@ COMMON_OBJS := $(COMMON_SRCS:.c=.o)
 # Platform-specific configuration
 ifeq ($(UNAME_S),Linux)
     TARGET := reflector-linux
-    PLATFORM_SRCS := src/dataplane/linux_xdp/xdp_platform.c \
-                     src/dataplane/linux_packet/packet_platform.c
+    # Check for AF_XDP support (libxdp headers)
+    HAS_XDP := $(shell echo '\#include <bpf/xsk.h>' | $(CC) -E - >/dev/null 2>&1 && echo 1 || echo 0)
+
+    ifeq ($(HAS_XDP),1)
+        PLATFORM_SRCS := src/dataplane/linux_xdp/xdp_platform.c \
+                         src/dataplane/linux_packet/packet_platform.c
+        LDFLAGS += -lxdp -lbpf -lelf -lz
+        XDP_PROG := src/xdp/filter.bpf.o
+        $(info Building with AF_XDP support)
+    else
+        PLATFORM_SRCS := src/dataplane/linux_packet/packet_platform.c
+        XDP_PROG :=
+        $(info AF_XDP headers not found - building AF_PACKET only)
+        $(info Install libxdp-dev for AF_XDP support: sudo apt install libxdp-dev)
+    endif
+
     PLATFORM_OBJS := $(PLATFORM_SRCS:.c=.o)
-    LDFLAGS += -lxdp -lbpf -lelf -lz
-    XDP_PROG := src/xdp/filter.bpf.o
 else ifeq ($(UNAME_S),Darwin)
     TARGET := reflector-macos
     PLATFORM_SRCS := src/dataplane/macos_bpf/bpf_platform.c

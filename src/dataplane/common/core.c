@@ -12,11 +12,18 @@
 #include <signal.h>
 #include <sched.h>
 #include "reflector.h"
+#include "platform_config.h"
 
 /* Forward declarations */
+#if HAVE_AF_XDP
 extern const platform_ops_t* get_xdp_platform_ops(void);
+#endif
+#ifdef __linux__
 extern const platform_ops_t* get_packet_platform_ops(void);
+#endif
+#ifdef __APPLE__
 extern const platform_ops_t* get_bpf_platform_ops(void);
+#endif
 
 /* Global platform ops (set at runtime) */
 static const platform_ops_t *platform_ops = NULL;
@@ -98,8 +105,13 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 
     /* Determine platform */
 #ifdef __linux__
-    /* Try AF_XDP first, fall back to AF_PACKET if it fails */
+    /* Try AF_XDP first if available, otherwise use AF_PACKET */
+#if HAVE_AF_XDP
     platform_ops = get_xdp_platform_ops();
+#else
+    reflector_log(LOG_INFO, "AF_XDP not available, using AF_PACKET");
+    platform_ops = get_packet_platform_ops();
+#endif
 #elif defined(__APPLE__)
     platform_ops = get_bpf_platform_ops();
 #else
@@ -147,7 +159,7 @@ int reflector_start(reflector_ctx_t *rctx)
 
         /* Initialize platform */
         if (platform_ops->init(rctx, wctx) < 0) {
-#ifdef __linux__
+#if defined(__linux__) && HAVE_AF_XDP
             /* Try AF_PACKET fallback on Linux if AF_XDP fails */
             if (platform_ops == get_xdp_platform_ops()) {
                 reflector_log(LOG_WARN, "AF_XDP init failed, trying AF_PACKET fallback...");
