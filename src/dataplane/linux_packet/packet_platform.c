@@ -101,10 +101,12 @@ int packet_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
         }
     }
 
-    /* Set non-blocking mode for fast polling */
-    int flags = fcntl(pctx->sock_fd, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(pctx->sock_fd, F_SETFL, flags | O_NONBLOCK);
+    /* Set socket receive timeout for polling */
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 1000;  /* 1ms timeout for responsive polling */
+    if (setsockopt(pctx->sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        reflector_log(LOG_WARN, "Failed to set socket timeout: %s", strerror(errno));
     }
 
     reflector_log(LOG_INFO, "AF_PACKET platform initialized on %s (fallback mode, no-copy)",
@@ -140,8 +142,8 @@ int packet_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
     struct platform_ctx *pctx = wctx->pctx;
     int num_pkts = 0;
 
-    /* Read one packet into buffer - no malloc, direct pointer */
-    ssize_t n = recv(pctx->sock_fd, pctx->buffer, pctx->buffer_size, MSG_DONTWAIT);
+    /* Read one packet into buffer - blocking with timeout */
+    ssize_t n = recv(pctx->sock_fd, pctx->buffer, pctx->buffer_size, 0);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
             wctx->stats.poll_timeout++;
