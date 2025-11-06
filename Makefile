@@ -62,14 +62,14 @@ $(TARGET): $(ALL_OBJS)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-# Compile eBPF program (Linux only)
+# Compile eBPF program (Linux only) - non-fatal, AF_XDP works without it
 src/xdp/filter.bpf.o: src/xdp/filter.bpf.c
 	@echo "Compiling eBPF program..."
-	$(CLANG) -O2 -g -target bpf \
+	-$(CLANG) -O2 -g -target bpf \
 		-I/usr/include/$(shell uname -m)-linux-gnu \
 		-I/usr/src/linux-headers-$(shell uname -r)/include \
 		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(shell uname -m)/include \
-		-c $< -o $@
+		-c $< -o $@ 2>/dev/null || echo "eBPF compilation failed (will use SKB mode)"
 
 # Clean build artifacts
 clean:

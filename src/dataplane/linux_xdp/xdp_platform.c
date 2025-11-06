@@ -115,11 +115,21 @@ static int load_xdp_program(worker_ctx_t *wctx)
     reflector_config_t *cfg = wctx->config;
     int ret;
 
+    /* Check if BPF object file exists */
+    if (access("src/xdp/filter.bpf.o", F_OK) != 0) {
+        reflector_log(LOG_WARN, "eBPF filter not found, will use SKB mode without filter");
+        pctx->bpf_obj = NULL;
+        pctx->prog_fd = -1;
+        return 0;  /* Not an error - AF_XDP works without eBPF */
+    }
+
     /* Load BPF object file */
     pctx->bpf_obj = bpf_object__open_file("src/xdp/filter.bpf.o", NULL);
     if (libbpf_get_error(pctx->bpf_obj)) {
-        reflector_log(LOG_ERROR, "Failed to open BPF object file");
-        return -1;
+        reflector_log(LOG_WARN, "Failed to load eBPF filter, will use SKB mode without filter");
+        pctx->bpf_obj = NULL;
+        pctx->prog_fd = -1;
+        return 0;  /* Not an error - AF_XDP works without eBPF */
     }
 
     /* Load BPF program into kernel */
@@ -206,17 +216,21 @@ static int init_xsk(worker_ctx_t *wctx)
         return ret;
     }
 
-    /* Add socket FD to XSK map for XDP redirect */
-    int xsk_fd = xsk_socket__fd(pctx->xsk_info.xsk);
-    uint32_t queue_id = wctx->queue_id;
-    ret = bpf_map_update_elem(pctx->xsks_map_fd, &queue_id, &xsk_fd, BPF_ANY);
-    if (ret) {
-        reflector_log(LOG_ERROR, "Failed to update XSK map: %s", strerror(-ret));
-        xsk_socket__delete(pctx->xsk_info.xsk);
-        return ret;
+    /* Add socket FD to XSK map for XDP redirect (only if eBPF program is loaded) */
+    if (pctx->xsks_map_fd >= 0) {
+        int xsk_fd = xsk_socket__fd(pctx->xsk_info.xsk);
+        uint32_t queue_id = wctx->queue_id;
+        ret = bpf_map_update_elem(pctx->xsks_map_fd, &queue_id, &xsk_fd, BPF_ANY);
+        if (ret) {
+            reflector_log(LOG_ERROR, "Failed to update XSK map: %s", strerror(-ret));
+            xsk_socket__delete(pctx->xsk_info.xsk);
+            return ret;
+        }
+        reflector_log(LOG_INFO, "AF_XDP socket created on queue %d (with eBPF filter)", wctx->queue_id);
+    } else {
+        reflector_log(LOG_INFO, "AF_XDP socket created on queue %d (SKB mode, no eBPF filter)", wctx->queue_id);
     }
 
-    reflector_log(LOG_INFO, "AF_XDP socket created on queue %d", wctx->queue_id);
     return 0;
 }
 
@@ -234,6 +248,12 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
     wctx->pctx = pctx;
     pctx->frame_size = wctx->config->frame_size;
     pctx->num_frames = wctx->config->num_frames;
+
+    /* Initialize map FDs to -1 (will stay -1 if no eBPF program) */
+    pctx->xsks_map_fd = -1;
+    pctx->mac_map_fd = -1;
+    pctx->stats_map_fd = -1;
+    pctx->prog_fd = -1;
 
     /* Allocate UMEM buffer */
     uint64_t umem_size = pctx->num_frames * pctx->frame_size;
