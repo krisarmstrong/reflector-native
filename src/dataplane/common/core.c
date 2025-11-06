@@ -14,6 +14,7 @@
 
 /* Forward declarations */
 extern const platform_ops_t* get_xdp_platform_ops(void);
+extern const platform_ops_t* get_packet_platform_ops(void);
 extern const platform_ops_t* get_bpf_platform_ops(void);
 
 /* Global platform ops (set at runtime) */
@@ -96,6 +97,7 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 
     /* Determine platform */
 #ifdef __linux__
+    /* Try AF_XDP first, fall back to AF_PACKET if it fails */
     platform_ops = get_xdp_platform_ops();
 #elif defined(__APPLE__)
     platform_ops = get_bpf_platform_ops();
@@ -144,9 +146,26 @@ int reflector_start(reflector_ctx_t *rctx)
 
         /* Initialize platform */
         if (platform_ops->init(rctx, wctx) < 0) {
+#ifdef __linux__
+            /* Try AF_PACKET fallback on Linux if AF_XDP fails */
+            if (platform_ops == get_xdp_platform_ops()) {
+                reflector_log(LOG_WARN, "AF_XDP init failed, trying AF_PACKET fallback...");
+                platform_ops = get_packet_platform_ops();
+                if (platform_ops->init(rctx, wctx) < 0) {
+                    reflector_log(LOG_ERROR, "Failed to initialize AF_PACKET for worker %d", i);
+                    reflector_stop(rctx);
+                    return -1;
+                }
+            } else {
+                reflector_log(LOG_ERROR, "Failed to initialize platform for worker %d", i);
+                reflector_stop(rctx);
+                return -1;
+            }
+#else
             reflector_log(LOG_ERROR, "Failed to initialize platform for worker %d", i);
             reflector_stop(rctx);
             return -1;
+#endif
         }
 
         rctx->platform_contexts[i] = wctx->pctx;

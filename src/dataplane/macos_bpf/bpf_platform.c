@@ -78,46 +78,21 @@ static int open_bpf_device(void)
 
 /*
  * Set BPF filter program
- * Filter for: IPv4 UDP packets with ITO signatures
+ * For now, accept all packets and filter in userspace
+ * (BPF instruction offsets are complex and error-prone)
  */
 static int set_bpf_filter(int fd, const uint8_t mac[6])
 {
-    /* BPF filter program:
-     * 1. Check Ethernet dst MAC matches interface
-     * 2. Check EtherType = IPv4 (0x0800)
-     * 3. Check IP protocol = UDP (17)
-     * 4. Accept packet (will validate signature in userspace)
-     *
-     * Note: BPF instruction set doesn't easily allow signature matching,
-     * so we do a coarse filter here and fine-grained check in userspace.
-     */
+    (void)mac;  /* Filter in userspace instead */
+
+    /* Simple filter: accept all packets, we'll filter in userspace */
     struct bpf_insn insns[] = {
-        /* Load Ethernet destination MAC (first 4 bytes) */
-        BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 0),
-        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K,
-                 (mac[0] << 24) | (mac[1] << 16) | (mac[2] << 8) | mac[3], 0, 10),
-
-        /* Load Ethernet destination MAC (last 2 bytes) */
-        BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 4),
-        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, (mac[4] << 8) | mac[5], 0, 8),
-
-        /* Load EtherType */
-        BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 12),
-        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ETHERTYPE_IP, 0, 6),
-
-        /* Load IP protocol */
-        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 23),
-        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, IPPROTO_UDP, 0, 4),
-
-        /* Accept packet (return full packet) */
+        /* Return full packet length (accept all) */
         BPF_STMT(BPF_RET + BPF_K, (u_int)-1),
-
-        /* Reject packet */
-        BPF_STMT(BPF_RET + BPF_K, 0),
     };
 
     struct bpf_program filter = {
-        .bf_len = 10,  /* Number of BPF instructions */
+        .bf_len = 1,
         .bf_insns = insns
     };
 
@@ -126,7 +101,7 @@ static int set_bpf_filter(int fd, const uint8_t mac[6])
         return -1;
     }
 
-    reflector_log(LOG_DEBUG, "BPF filter installed (MAC filtering)");
+    reflector_log(LOG_DEBUG, "BPF filter installed (accept all, filter in userspace)");
     return 0;
 }
 

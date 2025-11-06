@@ -50,7 +50,7 @@
 #define UDP_HDR_LEN         8
 
 /* ITO packet signature offset (relative to UDP payload) */
-#define ITO_SIG_OFFSET 0
+#define ITO_SIG_OFFSET 5  /* 5-byte header before signature */
 
 /* Minimum packet sizes */
 #define MIN_ITO_PACKET_LEN 54  /* Eth(14) + IP(20) + UDP(8) + Sig(7) + padding */

@@ -25,19 +25,32 @@
  */
 bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6])
 {
+    static int debug_count = 0;
+
     /* Fast rejection: minimum length check */
     if (len < MIN_ITO_PACKET_LEN) {
+        if (debug_count++ < 3) {
+            reflector_log(LOG_DEBUG, "Packet too short: %u bytes (need %d)", len, MIN_ITO_PACKET_LEN);
+        }
         return false;
     }
 
     /* Check destination MAC matches our interface */
     if (memcmp(&data[ETH_DST_OFFSET], mac, 6) != 0) {
+        if (debug_count++ < 3) {
+            reflector_log(LOG_DEBUG, "MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want %02x:%02x:%02x:%02x:%02x:%02x",
+                data[0], data[1], data[2], data[3], data[4], data[5],
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        }
         return false;
     }
 
     /* Check EtherType = IPv4 (0x0800) */
     uint16_t ethertype = (data[ETH_TYPE_OFFSET] << 8) | data[ETH_TYPE_OFFSET + 1];
     if (ethertype != ETH_P_IP) {
+        if (debug_count++ < 3) {
+            reflector_log(LOG_DEBUG, "Not IPv4: ethertype=0x%04x", ethertype);
+        }
         return false;
     }
 
@@ -47,12 +60,18 @@ bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6])
     uint8_t ihl = ver_ihl & 0x0F;
 
     if (version != 4 || ihl < 5) {
+        if (debug_count++ < 3) {
+            reflector_log(LOG_DEBUG, "Bad IP: version=%u, ihl=%u", version, ihl);
+        }
         return false;
     }
 
     /* Check IP protocol = UDP */
     uint8_t ip_proto = data[ETH_HDR_LEN + IP_PROTO_OFFSET];
     if (ip_proto != IPPROTO_UDP) {
+        if (debug_count++ < 3) {
+            reflector_log(LOG_DEBUG, "Not UDP: protocol=%u", ip_proto);
+        }
         return false;
     }
 
@@ -62,15 +81,26 @@ bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6])
 
     /* Ensure we have enough data for signature */
     if (len < udp_payload_offset + ITO_SIG_LEN) {
+        if (debug_count++ < 3) {
+            reflector_log(LOG_DEBUG, "Too short for signature: len=%u, need=%u", len, udp_payload_offset + ITO_SIG_LEN);
+        }
         return false;
     }
 
     /* Check for ITO signatures */
     const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
 
+    if (debug_count++ < 3) {
+        char sig_str[8];
+        memcpy(sig_str, sig, ITO_SIG_LEN);
+        sig_str[ITO_SIG_LEN] = '\0';
+        reflector_log(LOG_DEBUG, "UDP payload signature: '%s' (checking for PROBEOT/DATA:OT/LATENCY)", sig_str);
+    }
+
     if (memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
         memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
         memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
+        reflector_log(LOG_INFO, "ITO packet matched! len=%u", len);
         return true;
     }
 

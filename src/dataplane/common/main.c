@@ -86,10 +86,11 @@ int main(int argc, char **argv)
     }
 
     printf("\n\nStopping reflector...\n");
-    reflector_cleanup(&g_rctx);
 
     reflector_stats_t final_stats;
     reflector_get_stats(&g_rctx, &final_stats);
+
+    reflector_cleanup(&g_rctx);
 
     printf("\nFinal Statistics:\n");
     printf("  Packets received:  %llu\n", (unsigned long long)final_stats.packets_received);
