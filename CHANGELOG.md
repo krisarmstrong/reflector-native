@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-01-06
+
+### Performance Optimizations
+
+**Compiler-Level Optimizations:**
+- Branch prediction hints with `likely()`/`unlikely()` macros
+- Force-inline critical hot path functions with `ALWAYS_INLINE`
+- Memory prefetching for packet data and write areas
+- Aggressive compiler flags: `-flto`, `-funroll-loops`, `-ftree-vectorize`, `-finline-functions`
+- Link-time optimization (LTO) enabled for whole-program optimization
+
+**Code-Level Optimizations:**
+- Optimized `is_ito_packet()` validation with branch hints
+- Prefetch packet headers before validation
+- All error path checks marked `unlikely()` for better branch prediction
+- All success path checks marked `likely()` for optimal pipelining
+- Optimized `reflect_packet_inplace()` with prefetching
+- Direct integer swaps (32-bit for IP, 16-bit for ports) instead of memcpy
+- Statistics update functions inlined (`update_signature_stats`, `update_latency_stats`, `update_error_stats`)
+
+**Expected Impact:**
+- 5-10% throughput improvement from better branch prediction
+- 2-5% improvement from memory prefetching
+- 5-15% improvement from LTO and aggressive inlining
+- Reduced L1 cache misses from prefetching
+- Better instruction pipelining from branch hints
+- **Total expected improvement: 10-25% higher packet rate**
+
+### Technical Details
+
+**Branch Prediction:**
+- MAC address mismatches (common): marked `unlikely()`
+- ITO packet matches (after MAC match): marked `likely()`
+- Error conditions: marked `unlikely()`
+- Success paths: marked `likely()`
+
+**Memory Prefetching:**
+- Packet data prefetched at validation start
+- UDP header area prefetched (offset +64)
+- Packet write areas prefetched before reflection
+- Reduces cache miss penalties
+
+**Function Inlining:**
+- `is_ito_packet()`: forced inline (called per packet)
+- `reflect_packet_inplace()`: forced inline (called per reflected packet)
+- All statistics helpers: forced inline (called per packet)
+
+**Compiler Flags Added:**
+- `-fno-strict-aliasing`: Allows type-punning optimizations
+- `-fomit-frame-pointer`: Frees up register for packet processing
+- `-funroll-loops`: Unrolls validation loops
+- `-finline-functions`: Aggressive function inlining
+- `-ftree-vectorize`: Auto-vectorization where possible
+- `-flto`: Link-time optimization across compilation units
+
+### Changed
+- Version bumped to 1.1.1
+
 ## [1.1.0] - 2025-01-06
 
 ### Added

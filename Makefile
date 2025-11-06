@@ -2,9 +2,16 @@
 
 CC := gcc
 CLANG := clang
-CFLAGS := -Wall -Wextra -O3 -march=native -pthread
+# Performance-optimized flags
+CFLAGS := -Wall -Wextra -O3 -march=native -pthread \
+          -fno-strict-aliasing \
+          -fomit-frame-pointer \
+          -funroll-loops \
+          -finline-functions \
+          -ftree-vectorize \
+          -flto
 INCLUDES := -Iinclude
-LDFLAGS := -pthread
+LDFLAGS := -pthread -flto
 
 # Platform detection
 UNAME_S := $(shell uname -s)
