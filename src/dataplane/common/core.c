@@ -2,6 +2,7 @@
  * core.c - Core reflector engine and worker thread management
  */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
