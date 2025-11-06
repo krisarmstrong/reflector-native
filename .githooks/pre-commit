@@ -1,13 +1,51 @@
 #!/bin/bash
-# Pre-commit hook: run tests before allowing commit
+# Pre-commit hook: security checks and tests before allowing commit
 
 set -e
 
 echo "Running pre-commit checks..."
 
+ERRORS=0
+
+# Security check: detect secrets
+echo "🔒 Checking for secrets..."
+if git diff --cached --name-only | xargs grep -nHE "(password|secret|api[_-]?key|token|private[_-]?key|credential)['\"]?\s*[:=]" 2>/dev/null; then
+    echo "❌ Potential secret detected! Review the above lines."
+    echo "   If this is a false positive, add 'nosec' comment on that line"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Security check: large files
+echo "📦 Checking for large files..."
+for file in $(git diff --cached --name-only); do
+    if [ -f "$file" ]; then
+        SIZE=$(wc -c < "$file")
+        if [ $SIZE -gt 1048576 ]; then  # 1MB
+            echo "❌ Large file detected: $file ($(($SIZE / 1024))KB)"
+            echo "   Consider using Git LFS or excluding from repository"
+            ERRORS=$((ERRORS + 1))
+        fi
+    fi
+done
+
+# Security check: direct commits to main
+BRANCH=$(git symbolic-ref --short HEAD)
+if [ "$BRANCH" = "main" ]; then
+    echo "⚠️  Warning: Direct commit to main branch"
+    echo "   Consider using feature branches and pull requests"
+fi
+
+# Code quality: trailing whitespace
+echo "🧹 Checking for trailing whitespace..."
+if git diff --cached --check 2>&1 | grep -q "trailing whitespace"; then
+    echo "❌ Trailing whitespace detected"
+    echo "   Run: git diff --cached --check"
+    ERRORS=$((ERRORS + 1))
+fi
+
 # Check if we have uncommitted changes to source files
 if git diff --cached --name-only | grep -qE '\.(c|h)$'; then
-    echo "Source files modified - running tests..."
+    echo "🧪 Source files modified - running tests..."
 
     # Build and test
     make clean > /dev/null 2>&1
@@ -16,11 +54,18 @@ if git diff --cached --name-only | grep -qE '\.(c|h)$'; then
     if ! make test; then
         echo "❌ Tests failed! Commit aborted."
         echo "Fix the tests or use 'git commit --no-verify' to skip (not recommended)"
-        exit 1
+        ERRORS=$((ERRORS + 1))
+    else
+        echo "✅ All tests passed!"
     fi
-
-    echo "✅ All tests passed!"
 fi
 
-echo "✅ Pre-commit checks complete"
+if [ $ERRORS -gt 0 ]; then
+    echo ""
+    echo "❌ Pre-commit checks failed with $ERRORS error(s)"
+    echo "Fix the issues or use 'git commit --no-verify' to skip (not recommended)"
+    exit 1
+fi
+
+echo "✅ All pre-commit checks passed"
 exit 0
