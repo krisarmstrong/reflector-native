@@ -140,9 +140,10 @@ int xdp_filter_ito(struct xdp_md *ctx)
         goto pass;
     }
 
-    /* Check UDP payload for ITO signature */
+    /* Check UDP payload for ITO signature (at offset 5 - 5-byte proprietary header) */
     __u8 *payload = (void *)(udph + 1);
-    if (payload + ITO_SIG_LEN > (__u8 *)data_end) {
+    __u8 *signature = payload + 5;  /* ITO signature is at offset 5 in UDP payload */
+    if (signature + ITO_SIG_LEN > (__u8 *)data_end) {
         goto pass;
     }
 
@@ -151,9 +152,9 @@ int xdp_filter_ito(struct xdp_md *ctx)
     const char sig_dataot[ITO_SIG_LEN] = "DATA:OT";
     const char sig_latency[ITO_SIG_LEN] = "LATENCY";
 
-    if (bpf_memcmp(payload, sig_probeot, ITO_SIG_LEN) == 0 ||
-        bpf_memcmp(payload, sig_dataot, ITO_SIG_LEN) == 0 ||
-        bpf_memcmp(payload, sig_latency, ITO_SIG_LEN) == 0) {
+    if (bpf_memcmp(signature, sig_probeot, ITO_SIG_LEN) == 0 ||
+        bpf_memcmp(signature, sig_dataot, ITO_SIG_LEN) == 0 ||
+        bpf_memcmp(signature, sig_latency, ITO_SIG_LEN) == 0) {
 
         /* ITO packet detected - redirect to AF_XDP socket */
         if (stats) {

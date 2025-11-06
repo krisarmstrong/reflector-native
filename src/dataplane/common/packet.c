@@ -41,6 +41,14 @@ static void detect_cpu_features(void)
 }
 #endif /* __x86_64__ */
 
+/* SIMD support for ARM64/AArch64 architectures (Apple Silicon, AWS Graviton, etc.) */
+#if defined(__aarch64__) || defined(__ARM_NEON)
+#include <arm_neon.h>
+
+/* ARM64 always has NEON, no runtime detection needed */
+static int cpu_has_neon = 1;
+#endif /* __aarch64__ */
+
 /*
  * Fast path packet validation for ITO packets
  *
@@ -229,6 +237,78 @@ static ALWAYS_INLINE void reflect_packet_inplace_simd(uint8_t *data, uint32_t le
 }
 #endif /* __x86_64__ */
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+/*
+ * NEON-optimized packet reflection for ARM64 (Apple Silicon, AWS Graviton)
+ *
+ * Uses 128-bit NEON SIMD operations to swap headers in parallel.
+ * NEON is ARM's SIMD instruction set, equivalent to SSE/AVX on x86.
+ *
+ * Expected performance gain: 2-3% over scalar version on ARM64
+ */
+static ALWAYS_INLINE void reflect_packet_inplace_neon(uint8_t *data, uint32_t len)
+{
+	(void)len;
+
+	/* Prefetch areas we'll modify */
+	PREFETCH_WRITE(data);
+	PREFETCH_WRITE(data + 32);
+
+	/*
+	 * Ethernet header: Swap MAC addresses using NEON
+	 * Load 16 bytes (covers both MAC addresses + EtherType)
+	 */
+	uint8x16_t eth_header = vld1q_u8(data);
+
+	/* Create shuffle indices to swap src/dst MAC
+	 * Original: [dst0-5][src0-5][type0-1][extra0-1]
+	 * Target:   [src0-5][dst0-5][type0-1][extra0-1]
+	 * Indices:  6,7,8,9,10,11, 0,1,2,3,4,5, 12,13,14,15
+	 */
+	const uint8_t shuffle_indices[16] = {
+		6, 7, 8, 9, 10, 11,    /* src MAC -> dst position */
+		0, 1, 2, 3, 4, 5,      /* dst MAC -> src position */
+		12, 13, 14, 15         /* Keep EtherType and padding */
+	};
+	uint8x16_t shuffle_mask = vld1q_u8(shuffle_indices);
+
+	/* Perform shuffle (vqtbl1q_u8 is the NEON shuffle instruction) */
+	eth_header = vqtbl1q_u8(eth_header, shuffle_mask);
+
+	/* Store back */
+	vst1q_u8(data, eth_header);
+
+	/* Get IP header length */
+	uint8_t ihl = data[ETH_HDR_LEN + IP_VER_IHL_OFFSET] & 0x0F;
+	uint32_t ip_hdr_len = ihl * 4;
+
+	/*
+	 * Swap IP addresses using NEON 32-bit operations
+	 */
+	uint32_t ip_offset = ETH_HDR_LEN;
+
+	/* Load IP source and destination as 32-bit values */
+	uint32x2_t ip_addrs = vld1_u32((uint32_t *)&data[ip_offset + IP_SRC_OFFSET]);
+
+	/* Reverse the two 32-bit values (swap src and dst) */
+	ip_addrs = vrev64_u32(ip_addrs);
+
+	/* Store back */
+	vst1_u32((uint32_t *)&data[ip_offset + IP_SRC_OFFSET], ip_addrs);
+
+	/*
+	 * Swap UDP ports using 32-bit operation
+	 * Load both ports as one 32-bit value, then swap the halves
+	 */
+	uint32_t udp_offset = ETH_HDR_LEN + ip_hdr_len;
+	uint32_t *ports = (uint32_t *)&data[udp_offset];
+	uint32_t port_pair = *ports;
+
+	/* Rotate 16 bits to swap the two 16-bit port values */
+	*ports = (port_pair >> 16) | (port_pair << 16);
+}
+#endif /* __aarch64__ */
+
 /*
  * Scalar (non-SIMD) packet reflection - fallback for all platforms
  *
@@ -282,31 +362,51 @@ static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t 
  * Main packet reflection function with runtime SIMD dispatch
  *
  * Automatically detects CPU capabilities and uses the fastest available
- * implementation (SIMD on x86_64, scalar elsewhere).
+ * implementation:
+ * - x86_64: SSE2/SSE3 SIMD
+ * - ARM64: NEON SIMD
+ * - Others: Optimized scalar
  */
 ALWAYS_INLINE void reflect_packet_inplace(uint8_t *data, uint32_t len)
 {
 #if defined(__x86_64__) || defined(_M_X64)
-	/* Runtime CPU feature detection (cached after first call) */
+	/* x86_64: Runtime CPU feature detection (cached after first call) */
 	if (unlikely(cpu_has_sse2 == -1)) {
 		detect_cpu_features();
 
 		/* Log which implementation we're using */
 		if (cpu_has_sse2) {
-			reflector_log(LOG_INFO, "Using SIMD-optimized packet reflection (SSE2)");
+			reflector_log(LOG_INFO, "Using SIMD packet reflection (x86_64 SSE2)");
 		} else {
 			reflector_log(LOG_INFO, "Using scalar packet reflection (SSE2 not available)");
 		}
 	}
 
-	/* Dispatch to SIMD or scalar version based on CPU capabilities */
+	/* Dispatch to SIMD or scalar version */
 	if (likely(cpu_has_sse2)) {
 		reflect_packet_inplace_simd(data, len);
 	} else {
 		reflect_packet_inplace_scalar(data, len);
 	}
+
+#elif defined(__aarch64__) || defined(__ARM_NEON)
+	/* ARM64: NEON is always available, no runtime detection needed */
+	static int logged = 0;
+	if (unlikely(!logged)) {
+		reflector_log(LOG_INFO, "Using SIMD packet reflection (ARM64 NEON)");
+		logged = 1;
+	}
+
+	reflect_packet_inplace_neon(data, len);
+
 #else
-	/* Non-x86_64 platforms always use scalar version */
+	/* Other architectures: Use optimized scalar version */
+	static int logged = 0;
+	if (unlikely(!logged)) {
+		reflector_log(LOG_INFO, "Using scalar packet reflection (no SIMD)");
+		logged = 1;
+	}
+
 	reflect_packet_inplace_scalar(data, len);
 #endif
 }

@@ -11,7 +11,7 @@ High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld networ
 
 This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
 
-**Current Version:** 1.2.0 (January 2025) - Maximum performance (15-35% faster than v1.1.1)
+**Current Version:** 1.3.0 (January 2025) - Complete AF_XDP + Maximum Platform Performance
 
 ## Architecture
 
