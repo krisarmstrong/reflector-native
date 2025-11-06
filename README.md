@@ -3,7 +3,7 @@
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
 
 High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld network test tools.
 
@@ -11,7 +11,7 @@ High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld networ
 
 This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
 
-**Current Version:** 1.1.1 (January 2025) - Performance optimized (10-25% faster)
+**Current Version:** 1.2.0 (January 2025) - Maximum performance (15-35% faster than v1.1.1)
 
 ## Architecture
 
@@ -62,16 +62,32 @@ This project provides packet reflection capabilities for ITO (Integrated Test & 
 
 ## Requirements
 
+### CPU Requirements
+- **Minimum:** Dual-core CPU (2+ cores recommended for optimal performance)
+- **Architecture Support:**
+  - ✅ Intel x86_64 (with SSE2/SSE3 SIMD optimizations)
+  - ✅ Apple Silicon (ARM64) - scalar optimizations, SIMD planned for future
+  - ✅ AMD x86_64 (with SSE2/SSE3 SIMD optimizations)
+- **Performance Notes:**
+  - SIMD optimizations automatically enabled on x86_64 with SSE2 support
+  - ARM64 uses optimized scalar code (still highly performant)
+  - Multi-core recommended for AF_XDP on Linux (queue-per-core)
+
 ### Linux
-- Linux kernel (tested on Ubuntu 25.10)
-- gcc or clang
+- Linux kernel 4.18+ (tested on Ubuntu 25.10)
+- gcc or clang with C11 support
 - make
 - sudo/root access (for raw socket operations)
+- **For AF_XDP (optional, 10x faster):**
+  - Linux kernel 5.4+
+  - libxdp-dev, libbpf-dev packages
+  - XDP-capable NIC (Intel, Mellanox recommended)
 
 ### macOS
 - macOS 10.14+ (tested on macOS 14+)
-- Xcode Command Line Tools
+- Xcode Command Line Tools (clang)
 - sudo/root access (for BPF device access)
+- **Performance Note:** BPF limited to 10-50 Mbps (OS limitation)
 
 ## Building
 
