@@ -1,15 +1,94 @@
 # Architecture
 
-## Overview
+> **Note:** This document describes both the current v1.0.1 implementation and planned future architecture (v2.0+).
+> Sections marked with 🚀 indicate future planned features. See [ROADMAP.md](../ROADMAP.md) for timeline.
 
-The reflector uses a **two-tier architecture**:
+## Current Architecture (v1.0.1)
+
+The reflector is a **single-tier C application** with platform-specific implementations:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Reflector Application (C)                          │
+│                                                     │
+│  ┌──────────────────────────────────────┐          │
+│  │  CLI Interface                       │          │
+│  │  - Argument parsing                  │          │
+│  │  - Statistics display                │          │
+│  │  - Signal handling                   │          │
+│  └──────────────┬───────────────────────┘          │
+│                 │                                    │
+│  ┌──────────────▼───────────────────────┐          │
+│  │  Core Engine                         │          │
+│  │  - Worker thread                     │          │
+│  │  - Statistics aggregation            │          │
+│  └──────────────┬───────────────────────┘          │
+│                 │                                    │
+│  ┌──────────────▼───────────────────────┐          │
+│  │  Platform Abstraction Layer          │          │
+│  │  - platform_ops_t interface          │          │
+│  │  - init/cleanup/recv/send/release    │          │
+│  └─────────┬────────────────┬───────────┘          │
+│            │                │                       │
+│  ┌─────────▼──────┐  ┌─────▼──────────┐           │
+│  │ Linux          │  │ macOS          │           │
+│  │ AF_PACKET      │  │ BPF            │           │
+│  └────────────────┘  └────────────────┘           │
+└─────────────────────────────────────────────────────┘
+```
+
+### Current Implementation Details
+
+**Linux (AF_PACKET):**
+- Raw packet socket with ETH_P_ALL protocol
+- Blocking recv with 1ms timeout
+- Zero-copy receive (direct buffer access)
+- In-place packet modification
+
+**macOS (BPF):**
+- /dev/bpf device for packet capture/injection
+- 4MB read buffer for batch processing
+- BPF filter for ITO packets
+- Single-threaded processing
+
+**Common (Platform-agnostic):**
+- ITO packet validation
+- In-place header swapping (MAC/IP/UDP)
+- Statistics tracking
+- Logging and debugging
+
+---
+
+## 🚀 Future Architecture (v2.0+)
+
+The planned architecture introduces a **two-tier system**:
 
 1. **Data Plane (C)**: High-performance packet I/O and reflection
 2. **Control Plane (Go)**: Configuration, monitoring, and UI
 
-## Data Plane Architecture
+### Planned Two-Tier Architecture
 
-### Linux (AF_XDP)
+```
+┌─────────────────────────────────────────────────────┐
+│  Control Plane (Go)                                 │
+│  - TUI/Web UI                                       │
+│  - REST API                                         │
+│  - Configuration management                          │
+│  - Statistics collection/display                    │
+└────────────────┬────────────────────────────────────┘
+                 │ (Unix socket / gRPC)
+┌────────────────┴────────────────────────────────────┐
+│  Data Plane (C)                                     │
+│  - Linux: AF_XDP with eBPF filtering                │
+│  - macOS: BPF packet filtering                      │
+│  - Zero-copy packet reflection                      │
+│  - Multi-queue support (Linux)                      │
+└─────────────────────────────────────────────────────┘
+```
+
+## 🚀 Planned Data Plane Architecture (v2.0+)
+
+### Linux (AF_XDP) - Planned
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -58,7 +137,9 @@ The reflector uses a **two-tier architecture**:
 └────────────────────────────────────────────────┘
 ```
 
-### macOS (BPF)
+### macOS (BPF) - Current Implementation
+
+> **Note:** This is the current v1.0.1 implementation (single-threaded, 4MB buffer).
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -274,13 +355,17 @@ src/
     └── main.go           # Go control plane
 ```
 
-## Future Enhancements
+## 🚀 Future Enhancements
 
-Potential additions:
-1. DPDK support (for extreme performance)
-2. Configuration file support
-3. REST API for remote control
-4. Packet capture/logging
-5. Custom filter expressions
-6. Hardware timestamp support
-7. Systemd/launchd integration
+> **See [ROADMAP.md](../ROADMAP.md) for detailed timeline and priorities.**
+
+Potential additions (v2.0+):
+1. AF_XDP support (v2.0 - for 10G line-rate on Linux)
+2. Go control plane with TUI/Web UI (v2.1)
+3. DPDK support (v3.0 - for extreme performance)
+4. Configuration file support (v1.2)
+5. REST API for remote control (v2.1)
+6. Packet capture/logging (v1.1)
+7. Custom filter expressions (v3.0)
+8. Hardware timestamp support (v3.0)
+9. Systemd/launchd integration (v1.2)
