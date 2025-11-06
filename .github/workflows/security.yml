@@ -1,0 +1,90 @@
+name: Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: cpp
+
+    - name: Build
+      run: make
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+
+  secrets-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Gitleaks Secret Scan
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck clang-tidy
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem \
+          --inline-suppr -I include src/ 2>&1 | tee cppcheck-report.txt || true
+
+    - name: Check for critical issues
+      run: |
+        if grep -E "error:|warning:.*security" cppcheck-report.txt; then
+          echo "❌ Critical security issues found"
+          exit 1
+        fi
+
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Check for suspicious dependencies
+      run: |
+        echo "Checking build dependencies..."
+        # Verify Makefile doesn't download untrusted sources
+        if grep -E "curl|wget|git clone" Makefile; then
+          echo "⚠️  Warning: Makefile contains download commands"
+          exit 1
+        fi
+
+    - name: Verify file integrity
+      run: |
+        # Check for unexpected binary files
+        find . -type f -name "*.o" -o -name "*.so" -o -name "*.a" | while read file; do
+          echo "⚠️  Warning: Found binary file: $file"
+        done
