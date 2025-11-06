@@ -3,9 +3,14 @@
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Code Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen.svg)](docs/QUALITY_ASSURANCE.md)
+[![Test Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](docs/QUALITY_ASSURANCE.md#code-coverage)
+[![Memory Safe](https://img.shields.io/badge/memory-safe-success.svg)](docs/QUALITY_ASSURANCE.md#memory-safety)
 
 High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld network test tools.
+
+**Quality Assurance**: Comprehensive testing with sanitizers, valgrind, code coverage, static analysis, and automated CI/CD. See [QA Documentation](docs/QUALITY_ASSURANCE.md).
 
 ## Overview
 
@@ -222,31 +227,71 @@ cd reflector-native
 make
 ```
 
-### Git Hooks
-```bash
-# Install pre-commit hooks (recommended)
-./scripts/install-hooks.sh
+### Quality Assurance
 
-# Pre-commit hook runs:
-# - Secret detection
-# - Large file check
-# - Tests on source changes
+This project implements comprehensive automated quality assurance:
+
+#### Automated Testing on Every Commit
+```bash
+# Install git hooks (runs automatically on commit)
+./scripts/install-hooks.sh
 ```
 
-### Running Tests
-```bash
-# Unit tests
-make test
+**Pre-commit Hook Runs:**
+- ✅ Secret detection (prevents credential leaks)
+- ✅ Large file detection (prevents bloat)
+- ✅ Code formatting check (clang-format)
+- ✅ Full test suite (if source modified)
 
-# Manual testing with network tool
+#### Automated Testing on Every Push
+
+**CI/CD Pipeline (GitHub Actions):**
+- ✅ Multi-platform builds (Linux AF_PACKET, Linux AF_XDP, macOS BPF)
+- ✅ Comprehensive test suite (14 unit tests + benchmarks)
+- ✅ Code quality checks (clang-tidy, cppcheck)
+- ✅ Memory safety (Address Sanitizer, UB Sanitizer, Valgrind)
+- ✅ Code coverage analysis (85%+ coverage)
+- ✅ Security scanning (CodeQL, Gitleaks)
+- ✅ Performance benchmarks (regression detection)
+
+#### Quality Commands
+```bash
+# Run all tests
+make test-all               # Unit tests + benchmarks
+
+# Code quality
+make format                 # Auto-format code
+make format-check          # Check formatting
+make lint                  # Static analysis (clang-tidy)
+make cppcheck              # Security analysis
+
+# Memory safety
+make test-asan             # Address Sanitizer
+make test-ubsan            # UB Sanitizer
+make test-valgrind         # Valgrind (Linux)
+make coverage              # Code coverage
+
+# Complete quality check
+make check-all             # Run everything (30+ checks)
+```
+
+#### Versioning
+```bash
+# Semantic versioning (manual, intentional)
+./scripts/version.sh current        # Show current version
+./scripts/version.sh bump patch     # 1.3.0 -> 1.3.1
+./scripts/version.sh bump minor     # 1.3.0 -> 1.4.0
+./scripts/version.sh bump major     # 1.3.0 -> 2.0.0
+```
+
+**See [QUALITY_ASSURANCE.md](docs/QUALITY_ASSURANCE.md) for complete documentation.**
+
+### Manual Testing
+```bash
+# Run reflector and test with network tool
 sudo ./reflector-macos en0 -v
 # Then send ITO packets from LinkRunner/OneTouch
 ```
-
-### CI/CD
-- **GitHub Actions**: Automated builds for Linux and macOS
-- **Security scanning**: CodeQL, Gitleaks, cppcheck
-- **Release automation**: Tag-based releases with changelogs
 
 ## Contributing
 

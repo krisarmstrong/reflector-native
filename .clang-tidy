@@ -1,0 +1,62 @@
+---
+# Clang-Tidy Configuration for reflector-native
+# Static analysis for high-performance network code
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  concurrency-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  security-*,
+  cert-*,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  misc-*,
+  -misc-unused-parameters
+
+# Check options
+CheckOptions:
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.StructCase
+    value: lower_case
+  - key: readability-identifier-naming.MacroCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.EnumCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefSuffix
+    value: _t
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: '1'
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: '0'
+  - key: readability-function-size.LineThreshold
+    value: '200'
+  - key: readability-function-size.StatementThreshold
+    value: '150'
+
+# Warning options
+WarningsAsErrors: ''
+HeaderFilterRegex: '(include/reflector\.h|src/.*\.h)'
+
+# Format style
+FormatStyle: file
+
+# System headers
+SystemHeaders: false
+
+# Suppress inline
+InheritParentConfig: false
