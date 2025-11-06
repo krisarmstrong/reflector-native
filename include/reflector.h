@@ -14,8 +14,8 @@
 
 /* Version information */
 #define REFLECTOR_VERSION_MAJOR 1
-#define REFLECTOR_VERSION_MINOR 1
-#define REFLECTOR_VERSION_PATCH 1
+#define REFLECTOR_VERSION_MINOR 2
+#define REFLECTOR_VERSION_PATCH 0
 
 /* Compiler hints for branch prediction */
 #ifdef __GNUC__

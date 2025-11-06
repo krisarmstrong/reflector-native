@@ -28,13 +28,79 @@ extern const platform_ops_t* get_bpf_platform_ops(void);
 /* Global platform ops (set at runtime) */
 static const platform_ops_t *platform_ops = NULL;
 
-/* Worker thread main loop */
+/* Batched statistics update structure (reduces cache line bouncing) */
+typedef struct {
+	uint64_t packets_received;
+	uint64_t packets_reflected;
+	uint64_t bytes_received;
+	uint64_t bytes_reflected;
+	uint64_t sig_probeot_count;
+	uint64_t sig_dataot_count;
+	uint64_t sig_latency_count;
+	uint64_t sig_unknown_count;
+	uint64_t err_tx_failed;
+	latency_stats_t latency_batch;
+	int batch_count;
+} stats_batch_t;
+
+/* Flush batched statistics to worker stats */
+static inline void flush_stats_batch(reflector_stats_t *stats, stats_batch_t *batch)
+{
+	if (unlikely(batch->batch_count == 0)) {
+		return;
+	}
+
+	/* Flush accumulated counters */
+	stats->packets_received += batch->packets_received;
+	stats->packets_reflected += batch->packets_reflected;
+	stats->bytes_received += batch->bytes_received;
+	stats->bytes_reflected += batch->bytes_reflected;
+
+	/* Signature counters */
+	stats->sig_probeot_count += batch->sig_probeot_count;
+	stats->sig_dataot_count += batch->sig_dataot_count;
+	stats->sig_latency_count += batch->sig_latency_count;
+	stats->sig_unknown_count += batch->sig_unknown_count;
+
+	/* Error counters */
+	stats->err_tx_failed += batch->err_tx_failed;
+	stats->tx_errors += batch->err_tx_failed;
+
+	/* Merge latency statistics if any were collected */
+	if (batch->latency_batch.count > 0) {
+		stats->latency.count += batch->latency_batch.count;
+		stats->latency.total_ns += batch->latency_batch.total_ns;
+
+		/* Update min/max */
+		if (stats->latency.count == batch->latency_batch.count) {
+			/* First batch */
+			stats->latency.min_ns = batch->latency_batch.min_ns;
+			stats->latency.max_ns = batch->latency_batch.max_ns;
+		} else {
+			if (batch->latency_batch.min_ns < stats->latency.min_ns) {
+				stats->latency.min_ns = batch->latency_batch.min_ns;
+			}
+			if (batch->latency_batch.max_ns > stats->latency.max_ns) {
+				stats->latency.max_ns = batch->latency_batch.max_ns;
+			}
+		}
+
+		/* Recalculate average */
+		stats->latency.avg_ns = (double)stats->latency.total_ns / (double)stats->latency.count;
+	}
+
+	/* Reset batch */
+	memset(batch, 0, sizeof(*batch));
+}
+
+/* Worker thread main loop with batched statistics */
 static void* worker_thread(void *arg)
 {
     worker_ctx_t *wctx = (worker_ctx_t *)arg;
     packet_t pkts_rx[BATCH_SIZE];
     packet_t pkts_tx[BATCH_SIZE];
     int num_tx;
+    stats_batch_t stats_batch = {0};
 
     /* Set CPU affinity if specified */
     if (wctx->cpu_id >= 0) {
@@ -56,23 +122,61 @@ static void* worker_thread(void *arg)
             continue;
         }
 
+        /* Accumulate RX stats in local batch */
+        stats_batch.packets_received += rcvd;
+        for (int i = 0; i < rcvd; i++) {
+            stats_batch.bytes_received += pkts_rx[i].len;
+        }
+
         /* Process and reflect ITO packets */
         num_tx = 0;
         for (int i = 0; i < rcvd; i++) {
             if (is_ito_packet(pkts_rx[i].data, pkts_rx[i].len, wctx->config->mac)) {
-                /* Get signature type for statistics */
+                /* Accumulate signature stats in local batch */
                 ito_sig_type_t sig_type = get_ito_signature_type(pkts_rx[i].data, pkts_rx[i].len);
-                update_signature_stats(&wctx->stats, sig_type);
+                switch (sig_type) {
+                case ITO_SIG_TYPE_PROBEOT:
+                    stats_batch.sig_probeot_count++;
+                    break;
+                case ITO_SIG_TYPE_DATAOT:
+                    stats_batch.sig_dataot_count++;
+                    break;
+                case ITO_SIG_TYPE_LATENCY:
+                    stats_batch.sig_latency_count++;
+                    break;
+                default:
+                    stats_batch.sig_unknown_count++;
+                    break;
+                }
 
                 /* Reflect in-place */
                 reflect_packet_inplace(pkts_rx[i].data, pkts_rx[i].len);
 
-                /* Measure latency if enabled */
+                /* Accumulate latency stats in local batch if enabled */
                 if (wctx->config->measure_latency) {
                     uint64_t tx_time = get_timestamp_ns();
                     uint64_t latency_ns = tx_time - pkts_rx[i].timestamp;
-                    update_latency_stats(&wctx->stats.latency, latency_ns);
+
+                    /* Update batch latency stats */
+                    stats_batch.latency_batch.count++;
+                    stats_batch.latency_batch.total_ns += latency_ns;
+
+                    if (stats_batch.latency_batch.count == 1) {
+                        stats_batch.latency_batch.min_ns = latency_ns;
+                        stats_batch.latency_batch.max_ns = latency_ns;
+                    } else {
+                        if (latency_ns < stats_batch.latency_batch.min_ns) {
+                            stats_batch.latency_batch.min_ns = latency_ns;
+                        }
+                        if (latency_ns > stats_batch.latency_batch.max_ns) {
+                            stats_batch.latency_batch.max_ns = latency_ns;
+                        }
+                    }
                 }
+
+                /* Accumulate TX stats */
+                stats_batch.packets_reflected++;
+                stats_batch.bytes_reflected += pkts_rx[i].len;
 
                 pkts_tx[num_tx++] = pkts_rx[i];
             } else {
@@ -87,13 +191,20 @@ static void* worker_thread(void *arg)
         if (num_tx > 0) {
             int sent = platform_ops->send_batch(wctx, pkts_tx, num_tx);
             if (sent < 0) {
-                /* Track TX failures */
-                for (int i = 0; i < num_tx; i++) {
-                    update_error_stats(&wctx->stats, ERR_TX_FAILED);
-                }
+                /* Track TX failures in batch */
+                stats_batch.err_tx_failed += num_tx;
             }
         }
+
+        /* Flush batch to worker stats every BATCH_SIZE packets or periodically */
+        stats_batch.batch_count++;
+        if (unlikely(stats_batch.batch_count >= 8)) {  /* Flush every 8 batches (~512 packets) */
+            flush_stats_batch(&wctx->stats, &stats_batch);
+        }
     }
+
+    /* Final flush before exiting */
+    flush_stats_batch(&wctx->stats, &stats_batch);
 
     reflector_log(LOG_INFO, "Worker %d stopped", wctx->worker_id);
     return NULL;
@@ -126,11 +237,50 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
     /* Try AF_XDP first if available, otherwise use AF_PACKET */
 #if HAVE_AF_XDP
     platform_ops = get_xdp_platform_ops();
+    reflector_log(LOG_INFO, "Platform: AF_XDP (high-performance zero-copy mode)");
 #else
-    reflector_log(LOG_INFO, "AF_XDP not available, using AF_PACKET");
+    /* AF_XDP not available - print huge warning */
+    reflector_log(LOG_WARN, "╔════════════════════════════════════════════════════════════════════╗");
+    reflector_log(LOG_WARN, "║                   ⚠️  PERFORMANCE WARNING  ⚠️                      ║");
+    reflector_log(LOG_WARN, "╠════════════════════════════════════════════════════════════════════╣");
+    reflector_log(LOG_WARN, "║ AF_XDP not available - using AF_PACKET fallback mode              ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ EXPECTED PERFORMANCE: ~50-100 Mbps (NOT line-rate)                ║");
+    reflector_log(LOG_WARN, "║ AF_XDP PERFORMANCE:   ~10 Gbps (100x faster)                      ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ To enable AF_XDP:                                                  ║");
+    reflector_log(LOG_WARN, "║   sudo apt install libxdp-dev libbpf-dev                           ║");
+    reflector_log(LOG_WARN, "║   make clean && make                                               ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ Suitable for: Lab testing, low-rate validation                    ║");
+    reflector_log(LOG_WARN, "║ NOT suitable for: Production, high-rate testing (>100 Mbps)       ║");
+    reflector_log(LOG_WARN, "╚════════════════════════════════════════════════════════════════════╝");
     platform_ops = get_packet_platform_ops();
 #endif
 #elif defined(__APPLE__)
+    /* macOS BPF has architectural limitations */
+    reflector_log(LOG_WARN, "╔════════════════════════════════════════════════════════════════════╗");
+    reflector_log(LOG_WARN, "║                   ⚠️  PLATFORM LIMITATION  ⚠️                      ║");
+    reflector_log(LOG_WARN, "╠════════════════════════════════════════════════════════════════════╣");
+    reflector_log(LOG_WARN, "║ Platform: macOS BPF (Berkeley Packet Filter)                      ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ ARCHITECTURAL LIMIT: 10-50 Mbps maximum throughput                ║");
+    reflector_log(LOG_WARN, "║ Linux AF_XDP:        ~10 Gbps (200x faster)                       ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ This is a macOS kernel limitation, not a bug in this software.    ║");
+    reflector_log(LOG_WARN, "║ BPF packet processing in userspace is inherently slow.            ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ For high-performance testing (>50 Mbps):                          ║");
+    reflector_log(LOG_WARN, "║   • Use Linux with AF_XDP support                                  ║");
+    reflector_log(LOG_WARN, "║   • Install libxdp-dev on Ubuntu/Debian                            ║");
+    reflector_log(LOG_WARN, "║   • Use physical hardware (not VM)                                 ║");
+    reflector_log(LOG_WARN, "║                                                                    ║");
+    reflector_log(LOG_WARN, "║ Current macOS suitability:                                         ║");
+    reflector_log(LOG_WARN, "║   ✓ Development and debugging                                      ║");
+    reflector_log(LOG_WARN, "║   ✓ Low-rate testing (<10 Mbps)                                    ║");
+    reflector_log(LOG_WARN, "║   ✗ Production use                                                 ║");
+    reflector_log(LOG_WARN, "║   ✗ Performance testing (>50 Mbps)                                 ║");
+    reflector_log(LOG_WARN, "╚════════════════════════════════════════════════════════════════════╝");
     platform_ops = get_bpf_platform_ops();
 #else
     reflector_log(LOG_ERROR, "Unsupported platform");
@@ -180,7 +330,36 @@ int reflector_start(reflector_ctx_t *rctx)
 #if defined(__linux__) && HAVE_AF_XDP
             /* Try AF_PACKET fallback on Linux if AF_XDP fails */
             if (platform_ops == get_xdp_platform_ops()) {
-                reflector_log(LOG_WARN, "AF_XDP init failed, trying AF_PACKET fallback...");
+                reflector_log(LOG_ERROR, "═══════════════════════════════════════════════════════════════════════");
+                reflector_log(LOG_ERROR, "║  🚨 AF_XDP INITIALIZATION FAILED - FALLING BACK TO AF_PACKET 🚨     ║");
+                reflector_log(LOG_ERROR, "═══════════════════════════════════════════════════════════════════════");
+                reflector_log(LOG_WARN, "");
+                reflector_log(LOG_WARN, "╔════════════════════════════════════════════════════════════════════╗");
+                reflector_log(LOG_WARN, "║              ⚠️  CRITICAL PERFORMANCE DEGRADATION  ⚠️               ║");
+                reflector_log(LOG_WARN, "╠════════════════════════════════════════════════════════════════════╣");
+                reflector_log(LOG_WARN, "║ AF_XDP initialization failed - falling back to AF_PACKET           ║");
+                reflector_log(LOG_WARN, "║                                                                    ║");
+                reflector_log(LOG_WARN, "║ PERFORMANCE IMPACT: 10-100x SLOWER than AF_XDP                     ║");
+                reflector_log(LOG_WARN, "║                                                                    ║");
+                reflector_log(LOG_WARN, "║ AF_PACKET Performance: ~50-100 Mbps max                            ║");
+                reflector_log(LOG_WARN, "║ AF_XDP Performance:    ~10 Gbps (100x faster)                      ║");
+                reflector_log(LOG_WARN, "║                                                                    ║");
+                reflector_log(LOG_WARN, "║ Common causes:                                                     ║");
+                reflector_log(LOG_WARN, "║   • NIC driver doesn't support XDP (check ROADMAP.md)              ║");
+                reflector_log(LOG_WARN, "║   • Kernel too old (<5.4 required)                                 ║");
+                reflector_log(LOG_WARN, "║   • Insufficient permissions (need CAP_NET_RAW + CAP_BPF)          ║");
+                reflector_log(LOG_WARN, "║   • Network interface in use by other process                      ║");
+                reflector_log(LOG_WARN, "║                                                                    ║");
+                reflector_log(LOG_WARN, "║ Recommended actions:                                               ║");
+                reflector_log(LOG_WARN, "║   1. Check NIC compatibility: ethtool -i %s                   ║", rctx->config.ifname);
+                reflector_log(LOG_WARN, "║   2. Check kernel: uname -r (need ≥5.4)                            ║");
+                reflector_log(LOG_WARN, "║   3. Use Intel/Mellanox NIC for best AF_XDP support               ║");
+                reflector_log(LOG_WARN, "║   4. See docs/PERFORMANCE.md for details                           ║");
+                reflector_log(LOG_WARN, "║                                                                    ║");
+                reflector_log(LOG_WARN, "║ Continuing with AF_PACKET (reduced performance)...                 ║");
+                reflector_log(LOG_WARN, "╚════════════════════════════════════════════════════════════════════╝");
+                reflector_log(LOG_WARN, "");
+
                 platform_ops = get_packet_platform_ops();
                 if (platform_ops->init(rctx, wctx) < 0) {
                     reflector_log(LOG_ERROR, "Failed to initialize AF_PACKET for worker %d", i);
@@ -258,14 +437,57 @@ void reflector_get_stats(const reflector_ctx_t *rctx, reflector_stats_t *stats)
     memset(stats, 0, sizeof(*stats));
 
     for (int i = 0; i < rctx->num_workers; i++) {
+        /* Basic packet counters */
         stats->packets_received += rctx->workers[i].stats.packets_received;
         stats->packets_reflected += rctx->workers[i].stats.packets_reflected;
         stats->packets_dropped += rctx->workers[i].stats.packets_dropped;
         stats->bytes_received += rctx->workers[i].stats.bytes_received;
         stats->bytes_reflected += rctx->workers[i].stats.bytes_reflected;
+
+        /* Per-signature counters */
+        stats->sig_probeot_count += rctx->workers[i].stats.sig_probeot_count;
+        stats->sig_dataot_count += rctx->workers[i].stats.sig_dataot_count;
+        stats->sig_latency_count += rctx->workers[i].stats.sig_latency_count;
+        stats->sig_unknown_count += rctx->workers[i].stats.sig_unknown_count;
+
+        /* Error counters */
+        stats->err_invalid_mac += rctx->workers[i].stats.err_invalid_mac;
+        stats->err_invalid_ethertype += rctx->workers[i].stats.err_invalid_ethertype;
+        stats->err_invalid_protocol += rctx->workers[i].stats.err_invalid_protocol;
+        stats->err_invalid_signature += rctx->workers[i].stats.err_invalid_signature;
+        stats->err_too_short += rctx->workers[i].stats.err_too_short;
+        stats->err_tx_failed += rctx->workers[i].stats.err_tx_failed;
+        stats->err_nomem += rctx->workers[i].stats.err_nomem;
+
+        /* Legacy error counters */
         stats->rx_invalid += rctx->workers[i].stats.rx_invalid;
         stats->rx_nomem += rctx->workers[i].stats.rx_nomem;
         stats->tx_errors += rctx->workers[i].stats.tx_errors;
+
+        /* Aggregate latency statistics */
+        if (rctx->workers[i].stats.latency.count > 0) {
+            stats->latency.count += rctx->workers[i].stats.latency.count;
+            stats->latency.total_ns += rctx->workers[i].stats.latency.total_ns;
+
+            /* Update min/max across all workers */
+            if (stats->latency.count == rctx->workers[i].stats.latency.count) {
+                /* First worker with latency data */
+                stats->latency.min_ns = rctx->workers[i].stats.latency.min_ns;
+                stats->latency.max_ns = rctx->workers[i].stats.latency.max_ns;
+            } else {
+                if (rctx->workers[i].stats.latency.min_ns < stats->latency.min_ns) {
+                    stats->latency.min_ns = rctx->workers[i].stats.latency.min_ns;
+                }
+                if (rctx->workers[i].stats.latency.max_ns > stats->latency.max_ns) {
+                    stats->latency.max_ns = rctx->workers[i].stats.latency.max_ns;
+                }
+            }
+        }
+    }
+
+    /* Calculate average latency */
+    if (stats->latency.count > 0) {
+        stats->latency.avg_ns = (double)stats->latency.total_ns / (double)stats->latency.count;
     }
 }
 
