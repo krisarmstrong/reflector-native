@@ -10,7 +10,9 @@
 /* Check for AF_XDP support at compile time */
 #ifdef __linux__
     #ifdef __has_include
-        #if __has_include(<bpf/xsk.h>)
+        #if __has_include(<xdp/xsk.h>)
+            #define HAVE_AF_XDP 1
+        #elif __has_include(<bpf/xsk.h>)
             #define HAVE_AF_XDP 1
         #else
             #define HAVE_AF_XDP 0

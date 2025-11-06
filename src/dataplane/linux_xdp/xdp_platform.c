@@ -22,7 +22,7 @@
 #include <linux/if_link.h>
 #include <linux/if_xdp.h>
 #include <bpf/libbpf.h>
-#include <bpf/xsk.h>
+#include <xdp/xsk.h>
 #include <bpf/bpf.h>
 
 #include "reflector.h"

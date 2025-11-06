@@ -20,8 +20,8 @@ COMMON_OBJS := $(COMMON_SRCS:.c=.o)
 # Platform-specific configuration
 ifeq ($(UNAME_S),Linux)
     TARGET := reflector-linux
-    # Check for AF_XDP support (libxdp headers)
-    HAS_XDP := $(shell echo '\#include <bpf/xsk.h>' | $(CC) -E - >/dev/null 2>&1 && echo 1 || echo 0)
+    # Check for AF_XDP support (libxdp headers - try both locations)
+    HAS_XDP := $(shell echo '\#include <xdp/xsk.h>' | $(CC) -E - >/dev/null 2>&1 && echo 1 || echo 0)
 
     ifeq ($(HAS_XDP),1)
         PLATFORM_SRCS := src/dataplane/linux_xdp/xdp_platform.c \
