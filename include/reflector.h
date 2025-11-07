@@ -199,6 +199,8 @@ typedef struct {
 	bool measure_latency;            /* Enable latency measurements */
 	stats_format_t stats_format;     /* Statistics output format */
 	int stats_interval_sec;          /* Statistics display interval (seconds) */
+	int cpu_affinity;                /* CPU to pin worker thread (-1 for auto) */
+	bool use_huge_pages;             /* Use huge pages for UMEM (Linux only) */
 } reflector_config_t;
 
 /* Packet descriptor */
