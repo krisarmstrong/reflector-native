@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2025-01-07
+
+### Configuration Polish Release
+
+Adds software checksum configuration option for portability across NICs with varying offload capabilities.
+
+### Features
+
+**Software Checksum Configuration:**
+- Added `software_checksum` config field (default: false, uses NIC offload)
+- Enables fallback for NICs without reliable checksum offload
+- Framework in place for future implementation
+- Currently defaults to NIC offload (standard behavior)
+
+**Note**: Full software checksum implementation deferred to future release.
+Current behavior unchanged (relies on NIC offload).
+
+### Files Changed
+- `include/reflector.h`: Added software_checksum config field
+- `src/dataplane/common/core.c`: Config default initialization
+
+Addresses #14
+
 ## [1.6.0] - 2025-01-07
 
 ### macOS Kernel-Level Filtering Release

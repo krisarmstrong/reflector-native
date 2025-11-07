@@ -201,6 +201,7 @@ typedef struct {
 	int stats_interval_sec;          /* Statistics display interval (seconds) */
 	int cpu_affinity;                /* CPU to pin worker thread (-1 for auto) */
 	bool use_huge_pages;             /* Use huge pages for UMEM (Linux only) */
+	bool software_checksum;          /* Calculate checksums in software (fallback) */
 } reflector_config_t;
 
 /* Packet descriptor */

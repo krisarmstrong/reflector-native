@@ -234,6 +234,7 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
     rctx->config.poll_timeout_ms = 100;
     rctx->config.cpu_affinity = -1;  /* Auto: use IRQ affinity */
     rctx->config.use_huge_pages = false;  /* Disabled by default */
+    rctx->config.software_checksum = false;  /* Use NIC offload by default */
 
     /* Get interface info */
     rctx->config.ifindex = get_interface_index(ifname);
