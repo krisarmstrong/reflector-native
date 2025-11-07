@@ -82,7 +82,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	/* Fast rejection: minimum length check - LIKELY to pass */
 	if (unlikely(len < MIN_ITO_PACKET_LEN)) {
 		if (unlikely(debug_count++ < 3)) {
-			reflector_log(LOG_DEBUG, "Packet too short: %u bytes (need %d)", len, MIN_ITO_PACKET_LEN);
+			DEBUG_LOG("Packet too short: %u bytes (need %d)", len, MIN_ITO_PACKET_LEN);
 		}
 		return false;
 	}
@@ -90,9 +90,9 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	/* Check destination MAC matches our interface - UNLIKELY to match (filters most traffic) */
 	if (unlikely(memcmp(&data[ETH_DST_OFFSET], mac, 6) != 0)) {
 		if (unlikely(debug_count++ < 3)) {
-			reflector_log(LOG_DEBUG, "MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want %02x:%02x:%02x:%02x:%02x:%02x",
-			              data[0], data[1], data[2], data[3], data[4], data[5],
-			              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+			DEBUG_LOG("MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want %02x:%02x:%02x:%02x:%02x:%02x",
+			          data[0], data[1], data[2], data[3], data[4], data[5],
+			          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 		}
 		return false;
 	}
@@ -101,7 +101,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	uint16_t ethertype = (data[ETH_TYPE_OFFSET] << 8) | data[ETH_TYPE_OFFSET + 1];
 	if (unlikely(ethertype != ETH_P_IP)) {
 		if (unlikely(debug_count++ < 3)) {
-			reflector_log(LOG_DEBUG, "Not IPv4: ethertype=0x%04x", ethertype);
+			DEBUG_LOG("Not IPv4: ethertype=0x%04x", ethertype);
 		}
 		return false;
 	}
@@ -113,7 +113,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 
 	if (unlikely(version != 4 || ihl < 5)) {
 		if (unlikely(debug_count++ < 3)) {
-			reflector_log(LOG_DEBUG, "Bad IP: version=%u, ihl=%u", version, ihl);
+			DEBUG_LOG("Bad IP: version=%u, ihl=%u", version, ihl);
 		}
 		return false;
 	}
@@ -122,7 +122,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	uint8_t ip_proto = data[ETH_HDR_LEN + IP_PROTO_OFFSET];
 	if (unlikely(ip_proto != IPPROTO_UDP)) {
 		if (unlikely(debug_count++ < 3)) {
-			reflector_log(LOG_DEBUG, "Not UDP: protocol=%u", ip_proto);
+			DEBUG_LOG("Not UDP: protocol=%u", ip_proto);
 		}
 		return false;
 	}
@@ -134,8 +134,8 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	/* Ensure we have enough data for signature - LIKELY to have enough */
 	if (unlikely(len < udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN)) {
 		if (unlikely(debug_count++ < 3)) {
-			reflector_log(LOG_DEBUG, "Too short for signature: len=%u, need=%u",
-			              len, udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN);
+			DEBUG_LOG("Too short for signature: len=%u, need=%u",
+			          len, udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN);
 		}
 		return false;
 	}
@@ -149,7 +149,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 		char sig_str[ITO_SIG_LEN + 1];
 		memcpy(sig_str, sig, ITO_SIG_LEN);
 		sig_str[ITO_SIG_LEN] = '\0';
-		reflector_log(LOG_DEBUG, "UDP payload signature: '%s' (checking for PROBEOT/DATA:OT/LATENCY)", sig_str);
+		DEBUG_LOG("UDP payload signature: '%s' (checking for PROBEOT/DATA:OT/LATENCY)", sig_str);
 	}
 
 	/* Optimize signature check with early exit */

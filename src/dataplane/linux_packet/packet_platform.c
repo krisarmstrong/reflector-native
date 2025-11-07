@@ -249,7 +249,9 @@ int packet_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
         pkts[num_pkts].data = (uint8_t *)hdr + hdr->tp_mac;
         pkts[num_pkts].len = hdr->tp_snaplen;
         pkts[num_pkts].addr = pctx->rx_frame_idx;  /* Store frame index for release */
-        pkts[num_pkts].timestamp = get_timestamp_ns();
+
+        /* Only timestamp if latency measurement is enabled (avoid hot-path syscall overhead) */
+        pkts[num_pkts].timestamp = wctx->config->measure_latency ? get_timestamp_ns() : 0;
 
         num_pkts++;
         pctx->rx_frame_idx = (pctx->rx_frame_idx + 1) % pctx->rx_frame_num;

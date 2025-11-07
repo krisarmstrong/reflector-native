@@ -41,6 +41,22 @@
 #define PREFETCH_WRITE(addr) ((void)0)
 #endif
 
+/*
+ * Conditional debug logging for hot-path performance
+ *
+ * When ENABLE_HOT_PATH_DEBUG is not defined, DEBUG_LOG becomes a no-op
+ * with zero runtime overhead (no function call, no argument evaluation).
+ *
+ * Usage: DEBUG_LOG("packet too short: %u bytes", len);
+ *
+ * To enable: compile with -DENABLE_HOT_PATH_DEBUG
+ */
+#ifdef ENABLE_HOT_PATH_DEBUG
+#define DEBUG_LOG(fmt, ...) reflector_log(LOG_DEBUG, fmt, ##__VA_ARGS__)
+#else
+#define DEBUG_LOG(fmt, ...) ((void)0)
+#endif
+
 /* Configuration constants */
 #define MAX_IFNAME_LEN 16
 #define MAX_WORKERS 16

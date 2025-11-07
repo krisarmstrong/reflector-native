@@ -193,6 +193,16 @@ static void* worker_thread(void *arg)
             if (sent < 0) {
                 /* Track TX failures in batch */
                 stats_batch.err_tx_failed += num_tx;
+            } else if (sent > 0) {
+                /*
+                 * Release transmitted buffers back to platform
+                 * - AF_PACKET: Returns RX frames to kernel (packets were copied)
+                 * - AF_XDP: Triggers CQ polling to recycle UMEM buffers (zero-copy)
+                 * - macOS BPF: No-op (packets are copied, no buffer management)
+                 */
+                if (platform_ops->release_batch) {
+                    platform_ops->release_batch(wctx, pkts_tx, sent);
+                }
             }
         }
 
