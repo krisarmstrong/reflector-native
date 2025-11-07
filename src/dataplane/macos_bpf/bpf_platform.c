@@ -298,7 +298,9 @@ int bpf_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
         pkts[num_pkts].data = pkt_data;
         pkts[num_pkts].len = pkt_len;
         pkts[num_pkts].addr = 0;  /* Not used on macOS */
-        pkts[num_pkts].timestamp = get_timestamp_ns();
+
+        /* Only timestamp if latency measurement is enabled (avoid hot-path syscall overhead) */
+        pkts[num_pkts].timestamp = wctx->config->measure_latency ? get_timestamp_ns() : 0;
 
         wctx->stats.packets_received++;
         wctx->stats.bytes_received += pkt_len;
