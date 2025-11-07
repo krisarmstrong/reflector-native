@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2025-01-07
+
+### macOS BPF Performance Optimizations (Quick Win Release)
+
+Significant performance improvements for macOS BPF implementation targeting 20-50% throughput increase.
+
+### Added
+
+**Auto-Detect Maximum Buffer Size**
+- Automatically detects and sets optimal BPF buffer size (1MB → 512KB → 256KB fallback)
+- Maximizes batch processing potential
+- Reduces syscall overhead by reading more packets per call
+
+**Event-Driven I/O with kqueue**
+- Replaced blocking read() with kqueue-based event notification
+- More efficient CPU utilization during idle periods
+- Non-blocking file descriptors (O_NONBLOCK)
+- Reduces unnecessary polling overhead
+
+**Write Coalescing**
+- Batch multiple packet writes into single syscall (up to 64KB)
+- Significantly reduces write syscall overhead
+- Amortizes kernel transition cost across multiple packets
+
+**Header Caching**
+- Cache BPF header information to avoid repeated calculations
+- Reduces per-packet parsing overhead
+- Micro-optimization in hot path
+
+### Changed
+
+**Immediate Mode Disabled by Default**
+- Changed from immediate delivery to batched delivery
+- Trades small latency increase for better throughput
+- Allows kernel to accumulate more packets before delivering to userspace
+- Better suited for throughput-focused workload
+
+**Improved Error Handling**
+- Consistent errno preservation across all operations
+- Better error reporting with strerror()
+- Non-fatal write buffer full handling
+
+### Performance
+
+**Expected Improvement**: 50 Mbps → 60-75 Mbps (20-50% increase)
+
+**Key Optimizations**:
+- Reduced syscall frequency (batch read/write)
+- Better CPU utilization (event-driven I/O)
+- Larger kernel buffers (more batching)
+- Disabled immediate mode (accumulate packets)
+
+**Tested On**:
+- macOS 14 Sonoma (Apple Silicon M1/M2/M3)
+- macOS 13 Ventura (Intel)
+
+### Technical Details
+
+**Modified Files**:
+- `src/dataplane/macos_bpf/bpf_platform.c` - Complete optimization rewrite
+
+**New Features**:
+- kqueue integration for event-driven I/O
+- Dynamic buffer size detection with fallback
+- Write coalescing buffer (64KB)
+- Cached BPF header constants
+
+### Notes
+
+- No breaking changes (drop-in replacement)
+- All existing tests pass
+- Linux performance unaffected
+- Prepares codebase for v2.0.0 Network Extension Framework
+
 ## [1.8.1] - 2025-01-07
 
 ### Quality & Security Improvements
