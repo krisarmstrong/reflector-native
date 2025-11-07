@@ -1,0 +1,116 @@
+# Critical Fixes for reflector-native
+# Addresses 5 MUST FIX issues before production deployment
+
+## Issue C-4: Race condition in CPU feature detection
+## File: src/dataplane/common/packet.c
+## Fix: Use pthread_once for thread-safe initialization
+
+Add after line 10:
++#include <pthread.h>
+
+Replace lines 22-24:
+-static int cpu_has_sse2 = -1;  /* -1 = not checked, 0 = no, 1 = yes */
+-static int cpu_has_sse3 = -1;
++static int cpu_has_sse2 = 0;
++static int cpu_has_sse3 = 0;
++static pthread_once_t cpu_detect_once = PTHREAD_ONCE_INIT;
+
+Add logging to detect_cpu_features (after line 40):
++	/* Log which implementation (runs only once) */
++	if (cpu_has_sse2) {
++		reflector_log(LOG_INFO, "SIMD: x86_64 SSE2 enabled");
++	}
+
+Replace lines 374-383 in reflect_packet_inplace:
+-	if (unlikely(cpu_has_sse2 == -1)) {
+-		detect_cpu_features();
+-		if (cpu_has_sse2) {
+-			reflector_log(LOG_INFO, "Using SIMD packet reflection (x86_64 SSE2)");
+-		} else {
+-			reflector_log(LOG_INFO, "Using scalar packet reflection (SSE2 not available)");
+-		}
+-	}
++	/* Thread-safe CPU feature detection (once only) */
++	pthread_once(&cpu_detect_once, detect_cpu_features);
+
+## Issue H-3: debug_count not thread-safe
+## File: src/dataplane/common/packet.c:67
+## Fix: Use thread-local storage
+
+Replace line 67:
+-	static int debug_count = 0;
++	static _Thread_local int debug_count = 0;
+
+## Issue H-6: Unaligned pointer casts (undefined behavior)
+## File: src/dataplane/common/packet.c:344-356
+## Fix: Use memcpy for unaligned access
+
+Replace lines 342-348:
+-	/* Swap IP addresses (4 bytes each) - use 32-bit operations */
+-	uint32_t ip_offset = ETH_HDR_LEN;
+-	uint32_t *ip_src = (uint32_t *)&data[ip_offset + IP_SRC_OFFSET];
+-	uint32_t *ip_dst = (uint32_t *)&data[ip_offset + IP_DST_OFFSET];
+-	uint32_t temp_ip = *ip_src;
+-	*ip_src = *ip_dst;
+-	*ip_dst = temp_ip;
++	/* Swap IP addresses (4 bytes each) - use memcpy for alignment safety */
++	uint32_t ip_offset = ETH_HDR_LEN;
++	uint32_t ip_src_val, ip_dst_val;
++	memcpy(&ip_src_val, &data[ip_offset + IP_SRC_OFFSET], 4);
++	memcpy(&ip_dst_val, &data[ip_offset + IP_DST_OFFSET], 4);
++	memcpy(&data[ip_offset + IP_SRC_OFFSET], &ip_dst_val, 4);
++	memcpy(&data[ip_offset + IP_DST_OFFSET], &ip_src_val, 4);
+
+Replace lines 350-356:
+-	/* Swap UDP ports (2 bytes each) - use 16-bit operations */
+-	uint32_t udp_offset = ETH_HDR_LEN + ip_hdr_len;
+-	uint16_t *udp_src = (uint16_t *)&data[udp_offset + UDP_SRC_PORT_OFFSET];
+-	uint16_t *udp_dst = (uint16_t *)&data[udp_offset + UDP_DST_PORT_OFFSET];
+-	uint16_t temp_port = *udp_src;
+-	*udp_src = *udp_dst;
+-	*udp_dst = temp_port;
++	/* Swap UDP ports (2 bytes each) - use memcpy for alignment safety */
++	uint32_t udp_offset = ETH_HDR_LEN + ip_hdr_len;
++	uint16_t udp_src_val, udp_dst_val;
++	memcpy(&udp_src_val, &data[udp_offset + UDP_SRC_PORT_OFFSET], 2);
++	memcpy(&udp_dst_val, &data[udp_offset + UDP_DST_PORT_OFFSET], 2);
++	memcpy(&data[udp_offset + UDP_SRC_PORT_OFFSET], &udp_dst_val, 2);
++	memcpy(&data[udp_offset + UDP_DST_OFFSET], &udp_src_val, 2);
+
+## Issue C-2: Missing return value check on clock_gettime
+## File: src/dataplane/common/util.c:60,224
+## Fix: Check return value and handle errors
+
+Replace line 60:
+-	clock_gettime(CLOCK_REALTIME, &ts);
++	if (clock_gettime(CLOCK_REALTIME, &ts) < 0) {
++		return 0;  /* Fallback on error */
++	}
+
+Replace line 224:
+-	clock_gettime(CLOCK_MONOTONIC, &ts);
++	if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
++		return 0;  /* Fallback on error */
++	}
+
+## Issue H-4: sleep(1) is unreliable for thread synchronization
+## File: src/dataplane/common/core.c:408
+## Fix: Use pthread_join instead
+
+This requires storing pthread_t handles. Add to reflector_ctx_t:
++	pthread_t *worker_tids;  /* Thread IDs for joining */
+
+In reflector_start, save thread IDs:
+	for (int i = 0; i < rctx->num_workers; i++) {
+-		pthread_t tid;
++		pthread_t *tid = &rctx->worker_tids[i];
+		if (pthread_create(tid, NULL, worker_thread, &rctx->workers[i]) != 0) {
+
+In reflector_stop, replace sleep with join:
+-	/* Wait for threads to exit */
+-	sleep(1);
++	/* Wait for all worker threads to exit */
++	for (int i = 0; i < rctx->num_workers; i++) {
++		pthread_join(rctx->worker_tids[i], NULL);
++	}
+
