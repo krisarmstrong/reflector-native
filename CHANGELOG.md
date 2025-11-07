@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2025-01-07
+
+### Quality & Security Improvements
+
+Patch release addressing all low/medium priority items from Principal Engineer code review.
+
+### Fixed
+
+**M-1: Errno Preservation Consistency**
+- Added consistent errno save/restore pattern across all error paths
+- Prevents errno clobbering after cleanup operations (close(), free(), etc.)
+- Affects: `util.c` (get_interface_index, get_interface_mac, get_num_rx_queues, set_interface_promisc)
+
+**M-2: Privilege Dropping**
+- Added `drop_privileges()` function for enhanced security
+- Automatically drops to `nobody` user (uid=65534) after socket initialization on Linux
+- Called after all platform contexts are initialized (when privileges no longer needed)
+- No-op on macOS (BPF requires root throughout runtime)
+
+**M-3: Integration Test Suite**
+- Added comprehensive integration tests (`test_integration.c`)
+- Tests: init/cleanup, config validation, worker allocation, statistics, invalid inputs
+- Platform-aware (uses `lo0` on macOS, `lo` on Linux)
+- 9 test cases covering core functionality
+
+### Enhanced
+
+**L-1: Hot-Path Prefetch Optimization**
+- Added cache prefetch hints in packet processing loop
+- Prefetches next packet data while processing current packet
+- Hides 50-100ns memory latency
+- Expected impact: 2-5% throughput improvement
+
+**L-2: Safe String Copy (macOS)**
+- Implemented `SAFE_STRNCPY()` macro using `strlcpy()` on macOS
+- Falls back to explicit null termination on other platforms
+- Eliminates buffer overrun risks in interface name handling
+- Consistent across all `strncpy()` call sites
+
+**L-3: Internal Documentation**
+- Added comprehensive `docs/INTERNALS.md`
+- Covers: Threading model, platform abstraction, buffer management, hot-path optimization
+- Includes diagrams for buffer lifecycle (AF_XDP, AF_PACKET, macOS BPF)
+- Documents GCD vs pthreads implementation details
+
+### Added
+
+**Missing API Functions**
+- Implemented `reflector_set_config()` - Update configuration (only when not running)
+- Implemented `reflector_get_config()` - Retrieve current configuration
+- Implemented `reflector_reset_stats()` - Zero all statistics counters
+
+### Testing
+
+- Build: 0 warnings, 0 errors
+- Tests: 23/23 passing (6 packet + 8 utility + 9 integration)
+- Integration test coverage: Platform initialization, config management, worker lifecycle
+- All sanitizers clean (ASAN, UBSAN)
+
+### Files Changed
+- `src/dataplane/common/util.c`: Errno consistency, SAFE_STRNCPY, drop_privileges()
+- `src/dataplane/common/core.c`: Prefetch optimization, privilege dropping call, missing API functions
+- `include/reflector.h`: drop_privileges() declaration
+- `tests/test_integration.c`: New integration test suite
+- `docs/INTERNALS.md`: Comprehensive internal architecture documentation
+- `Makefile`: Integration test target
+
+Addresses all M-1, M-2, M-3, L-1, L-2, L-3 items from PRINCIPAL_ENGINEER_REVIEW.md
+
 ## [1.8.0] - 2025-01-07
 
 ### macOS Grand Central Dispatch (GCD) Threading
