@@ -266,6 +266,12 @@ int packet_platform_send_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
     struct platform_ctx *pctx = wctx->pctx;
     int sent = 0;
 
+    /* Validate num_pkts to prevent out-of-bounds access */
+    if (unlikely(num_pkts < 0 || num_pkts > BATCH_SIZE)) {
+        reflector_log(LOG_ERROR, "Invalid num_pkts: %d (must be 0-%d)", num_pkts, BATCH_SIZE);
+        return 0;
+    }
+
     for (int i = 0; i < num_pkts; i++) {
         struct tpacket2_hdr *hdr = (struct tpacket2_hdr *)(
             pctx->tx_ring + (pctx->tx_frame_idx * pctx->frame_size));
@@ -308,6 +314,12 @@ int packet_platform_send_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
 void packet_platform_release_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
 {
     struct platform_ctx *pctx = wctx->pctx;
+
+    /* Validate num_pkts to prevent out-of-bounds access */
+    if (unlikely(num_pkts < 0 || num_pkts > BATCH_SIZE)) {
+        reflector_log(LOG_ERROR, "Invalid num_pkts: %d (must be 0-%d)", num_pkts, BATCH_SIZE);
+        return;
+    }
 
     for (int i = 0; i < num_pkts; i++) {
         uint32_t frame_idx = pkts[i].addr;  /* We stored frame index in addr */

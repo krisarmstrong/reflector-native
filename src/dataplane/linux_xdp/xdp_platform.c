@@ -400,6 +400,12 @@ int xdp_platform_send_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
     struct platform_ctx *pctx = wctx->pctx;
     uint32_t idx_tx;
 
+    /* Validate num_pkts to prevent out-of-bounds access */
+    if (unlikely(num_pkts < 0 || num_pkts > BATCH_SIZE)) {
+        reflector_log(LOG_ERROR, "Invalid num_pkts: %d (must be 0-%d)", num_pkts, BATCH_SIZE);
+        return 0;
+    }
+
     /* Reserve space in TX ring */
     int reserved = xsk_ring_prod__reserve(&pctx->xsk_info.tx, num_pkts, &idx_tx);
     if (reserved == 0) {
@@ -441,6 +447,12 @@ void xdp_platform_release_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts
 {
     struct platform_ctx *pctx = wctx->pctx;
     uint32_t idx_fq;
+
+    /* Validate num_pkts to prevent out-of-bounds access */
+    if (unlikely(num_pkts < 0 || num_pkts > BATCH_SIZE)) {
+        reflector_log(LOG_ERROR, "Invalid num_pkts: %d (must be 0-%d)", num_pkts, BATCH_SIZE);
+        return;
+    }
 
     int reserved = xsk_ring_prod__reserve(&pctx->xsk_info.umem.fq, num_pkts, &idx_fq);
     for (int i = 0; i < reserved; i++) {

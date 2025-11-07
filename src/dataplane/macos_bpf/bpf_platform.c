@@ -72,8 +72,9 @@ static int open_bpf_device(void)
         }
     }
 
-    reflector_log(LOG_ERROR, "Failed to open BPF device: %s", strerror(errno));
-    return -1;
+    int saved_errno = errno;
+    reflector_log(LOG_ERROR, "Failed to open BPF device: %s", strerror(saved_errno));
+    return saved_errno ? -saved_errno : -ENXIO;
 }
 
 /*
@@ -97,8 +98,9 @@ static int set_bpf_filter(int fd, const uint8_t mac[6])
     };
 
     if (ioctl(fd, BIOCSETF, &filter) < 0) {
-        reflector_log(LOG_ERROR, "Failed to set BPF filter: %s", strerror(errno));
-        return -1;
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to set BPF filter: %s", strerror(saved_errno));
+        return saved_errno ? -saved_errno : -EIO;
     }
 
     reflector_log(LOG_DEBUG, "BPF filter installed (accept all, filter in userspace)");
@@ -135,20 +137,22 @@ int bpf_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
     /* Open BPF device for reading */
     pctx->bpf_fd = open_bpf_device();
     if (pctx->bpf_fd < 0) {
+        int ret = pctx->bpf_fd;  /* Propagate error code */
         free(pctx->read_buffer);
         free(pctx->write_buffer);
         free(pctx);
-        return -1;
+        return ret;
     }
 
     /* Open another BPF device for writing (macOS limitation: one-way devices) */
     pctx->write_fd = open_bpf_device();
     if (pctx->write_fd < 0) {
+        int ret = pctx->write_fd;  /* Propagate error code */
         close(pctx->bpf_fd);
         free(pctx->read_buffer);
         free(pctx->write_buffer);
         free(pctx);
-        return -1;
+        return ret;
     }
 
     /* Set buffer size for read device */
