@@ -144,7 +144,9 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
 
 	if (unlikely(debug_count++ < 3)) {
-		char sig_str[8];
+		/* Ensure buffer is large enough for signature + null terminator */
+		_Static_assert(ITO_SIG_LEN <= 7, "sig_str buffer too small for ITO_SIG_LEN");
+		char sig_str[ITO_SIG_LEN + 1];
 		memcpy(sig_str, sig, ITO_SIG_LEN);
 		sig_str[ITO_SIG_LEN] = '\0';
 		reflector_log(LOG_DEBUG, "UDP payload signature: '%s' (checking for PROBEOT/DATA:OT/LATENCY)", sig_str);

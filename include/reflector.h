@@ -45,6 +45,7 @@
 #define MAX_IFNAME_LEN 16
 #define MAX_WORKERS 16
 #define BATCH_SIZE 64
+#define STATS_FLUSH_BATCHES 8  /* Flush stats every 8 batches (~512 packets) */
 #define FRAME_SIZE 4096
 #define NUM_FRAMES 4096
 #define UMEM_SIZE (NUM_FRAMES * FRAME_SIZE)  /* 16MB */

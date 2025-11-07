@@ -198,7 +198,7 @@ static void* worker_thread(void *arg)
 
         /* Flush batch to worker stats every BATCH_SIZE packets or periodically */
         stats_batch.batch_count++;
-        if (unlikely(stats_batch.batch_count >= 8)) {  /* Flush every 8 batches (~512 packets) */
+        if (unlikely(stats_batch.batch_count >= STATS_FLUSH_BATCHES)) {
             flush_stats_batch(&wctx->stats, &stats_batch);
         }
     }

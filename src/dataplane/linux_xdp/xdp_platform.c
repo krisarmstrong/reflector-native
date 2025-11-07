@@ -270,9 +270,10 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
                           MAP_PRIVATE | MAP_ANONYMOUS,
                           -1, 0);
         if (umem_buffer == MAP_FAILED) {
-            reflector_log(LOG_ERROR, "Failed to allocate UMEM: %s", strerror(errno));
+            int saved_errno = errno;
+            reflector_log(LOG_ERROR, "Failed to allocate UMEM: %s", strerror(saved_errno));
             free(pctx);
-            return -errno;
+            return saved_errno ? -saved_errno : -ENOMEM;
         }
     }
 
