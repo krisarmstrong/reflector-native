@@ -141,6 +141,11 @@ static void* worker_thread(void *arg)
         /* Process and reflect ITO packets */
         num_tx = 0;
         for (int i = 0; i < rcvd; i++) {
+            /* Prefetch next packet to hide memory latency */
+            if (i + 1 < rcvd) {
+                PREFETCH_READ(pkts_rx[i + 1].data);
+            }
+
             if (is_ito_packet(pkts_rx[i].data, pkts_rx[i].len, wctx->config->mac)) {
                 /* Accumulate signature stats in local batch */
                 ito_sig_type_t sig_type = get_ito_signature_type(pkts_rx[i].data, pkts_rx[i].len);
@@ -239,8 +244,12 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
     memset(rctx, 0, sizeof(*rctx));
 
     /* Set defaults */
+#ifdef __APPLE__
+    strlcpy(rctx->config.ifname, ifname, MAX_IFNAME_LEN);
+#else
     strncpy(rctx->config.ifname, ifname, MAX_IFNAME_LEN - 1);
     rctx->config.ifname[MAX_IFNAME_LEN - 1] = '\0';
+#endif
     rctx->config.frame_size = FRAME_SIZE;
     rctx->config.num_frames = NUM_FRAMES;
     rctx->config.batch_size = BATCH_SIZE;
@@ -425,6 +434,14 @@ int reflector_start(reflector_ctx_t *rctx)
 
         rctx->platform_contexts[i] = wctx->pctx;
 
+        /* Drop privileges after socket/interface initialization (first worker only) */
+        if (i == 0) {
+            if (drop_privileges() < 0) {
+                reflector_log(LOG_WARN, "Failed to drop privileges (continuing anyway)");
+                /* Continue - not fatal for functionality */
+            }
+        }
+
 #ifdef __APPLE__
         /* Create GCD queue with QoS for low-latency packet processing */
         char queue_name[64];
@@ -589,6 +606,42 @@ void reflector_get_stats(const reflector_ctx_t *rctx, reflector_stats_t *stats)
     if (stats->latency.count > 0) {
         stats->latency.avg_ns = (double)stats->latency.total_ns / (double)stats->latency.count;
     }
+}
+
+/* Reset statistics */
+void reflector_reset_stats(reflector_ctx_t *rctx)
+{
+    for (int i = 0; i < rctx->num_workers; i++) {
+        memset(&rctx->workers[i].stats, 0, sizeof(reflector_stats_t));
+    }
+    memset(&rctx->global_stats, 0, sizeof(reflector_stats_t));
+}
+
+/* Set configuration */
+int reflector_set_config(reflector_ctx_t *rctx, const reflector_config_t *config)
+{
+    if (!rctx || !config) {
+        return -1;
+    }
+
+    /* Cannot change config while running */
+    if (rctx->running) {
+        reflector_log(LOG_ERROR, "Cannot change configuration while running");
+        return -1;
+    }
+
+    memcpy(&rctx->config, config, sizeof(reflector_config_t));
+    return 0;
+}
+
+/* Get configuration */
+void reflector_get_config(const reflector_ctx_t *rctx, reflector_config_t *config)
+{
+    if (!rctx || !config) {
+        return;
+    }
+
+    memcpy(config, &rctx->config, sizeof(reflector_config_t));
 }
 
 const platform_ops_t* get_platform_ops(void)
