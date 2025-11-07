@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <inttypes.h>
+#include <limits.h>
 #include "reflector.h"
 
 static volatile bool g_running = true;
@@ -24,8 +25,8 @@ void signal_handler(int sig)
 
 void print_stats_text(const reflector_stats_t *stats, double elapsed)
 {
-	double pps = stats->packets_reflected / elapsed;
-	double mbps = (stats->bytes_reflected * 8.0) / (elapsed * 1000000.0);
+	double pps = (elapsed > 0) ? stats->packets_reflected / elapsed : 0.0;
+	double mbps = (elapsed > 0) ? (stats->bytes_reflected * 8.0) / (elapsed * 1000000.0) : 0.0;
 
 	printf("\r[%.1fs] RX: %" PRIu64 " pkts (%" PRIu64 " bytes) | "
 	       "Reflected: %" PRIu64 " pkts | "
@@ -99,11 +100,16 @@ int main(int argc, char **argv)
 			measure_latency = true;
 		} else if (strcmp(argv[i], "--stats-interval") == 0) {
 			if (i + 1 < argc) {
-				g_stats_interval = atoi(argv[++i]);
-				if (g_stats_interval <= 0) {
-					fprintf(stderr, "Invalid stats interval\n");
+				char *endptr;
+				long val = strtol(argv[++i], &endptr, 10);
+				if (*endptr != '\0' || val <= 0 || val > INT_MAX) {
+					fprintf(stderr, "Invalid stats interval: %s\n", argv[i]);
 					return 1;
 				}
+				g_stats_interval = (int)val;
+			} else {
+				fprintf(stderr, "Missing value for --stats-interval\n");
+				return 1;
 			}
 		} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			print_usage(argv[0]);

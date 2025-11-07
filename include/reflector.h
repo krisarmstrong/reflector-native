@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include <sys/types.h>
 
 /* Version information - Auto-generated from git tags */
@@ -210,6 +211,7 @@ typedef struct {
     reflector_config_t config;
     platform_ctx_t **platform_contexts;  /* Array of per-worker contexts */
     worker_ctx_t *workers;
+    pthread_t *worker_tids;              /* Thread IDs for joining */
     reflector_stats_t global_stats;
     volatile bool running;
     int num_workers;

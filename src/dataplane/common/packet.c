@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <pthread.h>
 #include <arpa/inet.h>
 #include "reflector.h"
 
@@ -20,8 +21,9 @@
 #include <cpuid.h>
 
 /* CPU feature detection flags */
-static int cpu_has_sse2 = -1;  /* -1 = not checked, 0 = no, 1 = yes */
-static int cpu_has_sse3 = -1;
+static int cpu_has_sse2 = 0;
+static int cpu_has_sse3 = 0;
+static pthread_once_t cpu_detect_once = PTHREAD_ONCE_INIT;
 
 /*
  * Detect CPU features at runtime
@@ -37,6 +39,13 @@ static void detect_cpu_features(void)
 	} else {
 		cpu_has_sse2 = 0;
 		cpu_has_sse3 = 0;
+	}
+
+	/* Log which implementation (runs only once) */
+	if (cpu_has_sse2) {
+		reflector_log(LOG_INFO, "SIMD: x86_64 SSE2 enabled");
+	} else {
+		reflector_log(LOG_INFO, "Using scalar packet reflection (SSE2 not available)");
 	}
 }
 #endif /* __x86_64__ */
@@ -64,7 +73,7 @@ static int cpu_has_neon = 1;
  */
 ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6])
 {
-	static int debug_count = 0;
+	static _Thread_local int debug_count = 0;
 
 	/* Prefetch packet data for upcoming checks */
 	PREFETCH_READ(data);
@@ -339,21 +348,21 @@ static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t 
 	uint8_t ihl = data[ETH_HDR_LEN + IP_VER_IHL_OFFSET] & 0x0F;
 	uint32_t ip_hdr_len = ihl * 4;
 
-	/* Swap IP addresses (4 bytes each) - use 32-bit operations */
+	/* Swap IP addresses (4 bytes each) - use memcpy for alignment safety */
 	uint32_t ip_offset = ETH_HDR_LEN;
-	uint32_t *ip_src = (uint32_t *)&data[ip_offset + IP_SRC_OFFSET];
-	uint32_t *ip_dst = (uint32_t *)&data[ip_offset + IP_DST_OFFSET];
-	uint32_t temp_ip = *ip_src;
-	*ip_src = *ip_dst;
-	*ip_dst = temp_ip;
+	uint32_t ip_src_val, ip_dst_val;
+	memcpy(&ip_src_val, &data[ip_offset + IP_SRC_OFFSET], 4);
+	memcpy(&ip_dst_val, &data[ip_offset + IP_DST_OFFSET], 4);
+	memcpy(&data[ip_offset + IP_SRC_OFFSET], &ip_dst_val, 4);
+	memcpy(&data[ip_offset + IP_DST_OFFSET], &ip_src_val, 4);
 
-	/* Swap UDP ports (2 bytes each) - use 16-bit operations */
+	/* Swap UDP ports (2 bytes each) - use memcpy for alignment safety */
 	uint32_t udp_offset = ETH_HDR_LEN + ip_hdr_len;
-	uint16_t *udp_src = (uint16_t *)&data[udp_offset + UDP_SRC_PORT_OFFSET];
-	uint16_t *udp_dst = (uint16_t *)&data[udp_offset + UDP_DST_PORT_OFFSET];
-	uint16_t temp_port = *udp_src;
-	*udp_src = *udp_dst;
-	*udp_dst = temp_port;
+	uint16_t udp_src_val, udp_dst_val;
+	memcpy(&udp_src_val, &data[udp_offset + UDP_SRC_PORT_OFFSET], 2);
+	memcpy(&udp_dst_val, &data[udp_offset + UDP_DST_PORT_OFFSET], 2);
+	memcpy(&data[udp_offset + UDP_SRC_PORT_OFFSET], &udp_dst_val, 2);
+	memcpy(&data[udp_offset + UDP_DST_PORT_OFFSET], &udp_src_val, 2);
 
 	/* Note: Checksums are typically handled by NIC offload or ignored by test tools */
 }
@@ -370,17 +379,8 @@ static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t 
 ALWAYS_INLINE void reflect_packet_inplace(uint8_t *data, uint32_t len)
 {
 #if defined(__x86_64__) || defined(_M_X64)
-	/* x86_64: Runtime CPU feature detection (cached after first call) */
-	if (unlikely(cpu_has_sse2 == -1)) {
-		detect_cpu_features();
-
-		/* Log which implementation we're using */
-		if (cpu_has_sse2) {
-			reflector_log(LOG_INFO, "Using SIMD packet reflection (x86_64 SSE2)");
-		} else {
-			reflector_log(LOG_INFO, "Using scalar packet reflection (SSE2 not available)");
-		}
-	}
+	/* Thread-safe CPU feature detection (once only) */
+	pthread_once(&cpu_detect_once, detect_cpu_features);
 
 	/* Dispatch to SIMD or scalar version */
 	if (likely(cpu_has_sse2)) {

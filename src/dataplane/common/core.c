@@ -217,6 +217,7 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 
     /* Set defaults */
     strncpy(rctx->config.ifname, ifname, MAX_IFNAME_LEN - 1);
+    rctx->config.ifname[MAX_IFNAME_LEN - 1] = '\0';
     rctx->config.frame_size = FRAME_SIZE;
     rctx->config.num_frames = NUM_FRAMES;
     rctx->config.batch_size = BATCH_SIZE;
@@ -307,10 +308,12 @@ int reflector_start(reflector_ctx_t *rctx)
     rctx->num_workers = rctx->config.num_workers;
     rctx->workers = calloc(rctx->num_workers, sizeof(worker_ctx_t));
     rctx->platform_contexts = calloc(rctx->num_workers, sizeof(platform_ctx_t *));
+    rctx->worker_tids = calloc(rctx->num_workers, sizeof(pthread_t));
 
-    if (!rctx->workers || !rctx->platform_contexts) {
+    if (!rctx->workers || !rctx->platform_contexts || !rctx->worker_tids) {
         free(rctx->workers);
         free(rctx->platform_contexts);
+        free(rctx->worker_tids);
         return -ENOMEM;
     }
 
@@ -380,14 +383,12 @@ int reflector_start(reflector_ctx_t *rctx)
 
         rctx->platform_contexts[i] = wctx->pctx;
 
-        /* Create thread */
-        pthread_t tid;
-        if (pthread_create(&tid, NULL, worker_thread, wctx) != 0) {
+        /* Create thread (store TID for joining later) */
+        if (pthread_create(&rctx->worker_tids[i], NULL, worker_thread, wctx) != 0) {
             reflector_log(LOG_ERROR, "Failed to create worker thread %d", i);
             reflector_stop(rctx);
             return -1;
         }
-        pthread_detach(tid);
     }
 
     reflector_log(LOG_INFO, "Reflector started with %d workers", rctx->num_workers);
@@ -404,8 +405,12 @@ void reflector_stop(reflector_ctx_t *rctx)
             rctx->workers[i].running = false;
         }
 
-        /* Wait for threads to exit */
-        sleep(1);
+        /* Wait for all worker threads to exit */
+        if (rctx->worker_tids) {
+            for (int i = 0; i < rctx->num_workers; i++) {
+                pthread_join(rctx->worker_tids[i], NULL);
+            }
+        }
 
         /* Cleanup platform contexts */
         for (int i = 0; i < rctx->num_workers; i++) {
@@ -416,8 +421,10 @@ void reflector_stop(reflector_ctx_t *rctx)
 
         free(rctx->workers);
         free(rctx->platform_contexts);
+        free(rctx->worker_tids);
         rctx->workers = NULL;
         rctx->platform_contexts = NULL;
+        rctx->worker_tids = NULL;
     }
 
     reflector_log(LOG_INFO, "Reflector stopped");
