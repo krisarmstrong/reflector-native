@@ -40,6 +40,19 @@ struct {
     __uint(max_entries, 1);
 } mac_map SEC(".maps");
 
+/*
+ * Hash map for O(1) signature lookup
+ * Key: 7-byte ITO signature
+ * Value: signature type (1=valid, value unused but required)
+ * Max 16 signatures (expandable for future)
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, ITO_SIG_LEN);
+    __uint(value_size, sizeof(__u32));
+    __uint(max_entries, 16);
+} sig_map SEC(".maps");
+
 /* Statistics map */
 struct xdp_stats {
     __u64 packets_total;
@@ -54,23 +67,6 @@ struct {
     __uint(value_size, sizeof(struct xdp_stats));
     __uint(max_entries, 1);
 } stats_map SEC(".maps");
-
-/*
- * Helper function to compare memory regions
- * (eBPF doesn't allow calling standard memcmp)
- */
-static __always_inline int bpf_memcmp(const void *s1, const void *s2, __u32 size)
-{
-    const __u8 *p1 = s1;
-    const __u8 *p2 = s2;
-
-    for (__u32 i = 0; i < size; i++) {
-        if (p1[i] != p2[i]) {
-            return 1;
-        }
-    }
-    return 0;
-}
 
 /*
  * Main XDP program
@@ -147,15 +143,13 @@ int xdp_filter_ito(struct xdp_md *ctx)
         goto pass;
     }
 
-    /* Check for ITO signatures: PROBEOT, DATA:OT, LATENCY */
-    const char sig_probeot[ITO_SIG_LEN] = "PROBEOT";
-    const char sig_dataot[ITO_SIG_LEN] = "DATA:OT";
-    const char sig_latency[ITO_SIG_LEN] = "LATENCY";
-
-    if (bpf_memcmp(signature, sig_probeot, ITO_SIG_LEN) == 0 ||
-        bpf_memcmp(signature, sig_dataot, ITO_SIG_LEN) == 0 ||
-        bpf_memcmp(signature, sig_latency, ITO_SIG_LEN) == 0) {
-
+    /*
+     * O(1) signature lookup via hash map
+     * Replaces O(N) sequential memcmp checks
+     * Scales to many signatures without performance degradation
+     */
+    __u32 *sig_type = bpf_map_lookup_elem(&sig_map, signature);
+    if (sig_type) {
         /* ITO packet detected - redirect to AF_XDP socket */
         if (stats) {
             __sync_fetch_and_add(&stats->packets_ito, 1);

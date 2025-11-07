@@ -47,6 +47,7 @@ struct platform_ctx {
     struct bpf_object *bpf_obj;
     int xsks_map_fd;
     int mac_map_fd;
+    int sig_map_fd;
     int stats_map_fd;
     int prog_fd;
 
@@ -151,9 +152,10 @@ static int load_xdp_program(worker_ctx_t *wctx)
     /* Get map FDs */
     pctx->xsks_map_fd = bpf_object__find_map_fd_by_name(pctx->bpf_obj, "xsks_map");
     pctx->mac_map_fd = bpf_object__find_map_fd_by_name(pctx->bpf_obj, "mac_map");
+    pctx->sig_map_fd = bpf_object__find_map_fd_by_name(pctx->bpf_obj, "sig_map");
     pctx->stats_map_fd = bpf_object__find_map_fd_by_name(pctx->bpf_obj, "stats_map");
 
-    if (pctx->xsks_map_fd < 0 || pctx->mac_map_fd < 0 || pctx->stats_map_fd < 0) {
+    if (pctx->xsks_map_fd < 0 || pctx->mac_map_fd < 0 || pctx->sig_map_fd < 0 || pctx->stats_map_fd < 0) {
         reflector_log(LOG_ERROR, "Failed to find BPF maps");
         bpf_object__close(pctx->bpf_obj);
         return -1;
@@ -167,6 +169,20 @@ static int load_xdp_program(worker_ctx_t *wctx)
         bpf_object__close(pctx->bpf_obj);
         return ret;
     }
+
+    /* Populate signature hash map for O(1) lookup */
+    const char *signatures[] = {"PROBEOT", "DATA:OT", "LATENCY"};
+    uint32_t sig_value = 1;  /* Value unused, presence in map indicates match */
+
+    for (int i = 0; i < 3; i++) {
+        ret = bpf_map_update_elem(pctx->sig_map_fd, signatures[i], &sig_value, BPF_ANY);
+        if (ret) {
+            reflector_log(LOG_ERROR, "Failed to update sig_map for %s: %s", signatures[i], strerror(-ret));
+            bpf_object__close(pctx->bpf_obj);
+            return ret;
+        }
+    }
+    reflector_log(LOG_INFO, "Loaded %d ITO signatures into XDP hash map", 3);
 
     /* Attach XDP program to interface */
     ret = bpf_xdp_attach(cfg->ifindex, pctx->prog_fd, XDP_FLAGS_DRV_MODE, NULL);

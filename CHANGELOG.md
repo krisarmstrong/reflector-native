@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-01-07
+
+### XDP eBPF Optimization Release
+
+Implements O(1) signature matching in kernel via BPF hash map, replacing sequential O(N) memcmp operations. Scales to many signatures without performance degradation.
+
+### Performance Enhancements
+
+**XDP Signature Hash Map:**
+- Replaced sequential `bpf_memcmp` calls with `BPF_MAP_TYPE_HASH` lookup
+- O(1) constant-time signature matching vs O(N) linear scan
+- Supports up to 16 signatures (easily expandable)
+- Userspace-configurable signature set via map updates
+- Removes `bpf_memcmp` helper function (no longer needed)
+- **Impact**: Scales to many signatures without eBPF program complexity increase
+- **Future-proof**: Enables dynamic signature updates without recompiling eBPF
+
+**Technical Implementation:**
+- Added `sig_map` hash map in `src/xdp/filter.bpf.c`
+- Kernel: Single `bpf_map_lookup_elem()` replaces 3 memcmp calls
+- Userspace: Populates map with PROBEOT, DATA:OT, LATENCY at init
+- Map update in `src/dataplane/linux_xdp/xdp_platform.c:173-185`
+
+### Files Changed
+- `src/xdp/filter.bpf.c`: Added sig_map, removed bpf_memcmp, O(1) lookup
+- `src/dataplane/linux_xdp/xdp_platform.c`: Sig_map FD and population
+
+Closes #13
+
+## [1.3.1] - 2025-01-07
+
+### Critical Bug Fixes and Performance
+
+Fixed three critical issues from comprehensive code reviews.
+
+**CRITICAL:**
+- Buffer-release bug causing UMEM exhaustion (#9)
+- Eager CQ polling for AF_XDP buffer recycling
+
+**HIGH:**
+- Conditional timestamping (eliminates 2x syscalls/packet) (#10)
+- Zero-overhead DEBUG_LOG() macro (#11)
+
+See commit 291c791 for details.
+
 ## [1.3.0] - 2025-01-06
 
 ### Maximum Performance Release
