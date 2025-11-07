@@ -52,7 +52,6 @@ struct platform_ctx {
 
     uint32_t frame_size;
     uint32_t num_frames;
-    uint64_t umem_frame_addr[NUM_FRAMES];  /* Free frame tracking */
     uint32_t umem_frame_free;
 };
 
@@ -257,6 +256,11 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 
     /* Allocate UMEM buffer */
     uint64_t umem_size = pctx->num_frames * pctx->frame_size;
+
+    /* Try with hugepages first for better performance */
+#ifndef MAP_HUGETLB
+#define MAP_HUGETLB 0x40000  /* Linux-specific flag for huge pages */
+#endif
     void *umem_buffer = mmap(NULL, umem_size,
                             PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
