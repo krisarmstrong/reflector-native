@@ -371,6 +371,78 @@ static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t 
 }
 
 /*
+ * Calculate IP header checksum (RFC 791)
+ * Standard internet checksum algorithm for software fallback
+ */
+static uint16_t calculate_ip_checksum(const uint8_t *iph, uint32_t ihl_bytes)
+{
+	uint32_t sum = 0;
+	const uint16_t *ptr = (const uint16_t *)iph;
+	uint32_t count = ihl_bytes;
+
+	/* Sum all 16-bit words, skipping checksum field */
+	for (uint32_t i = 0; i < count / 2; i++) {
+		if (i != 5) {  /* Skip checksum field at offset 10 (word 5) */
+			sum += ntohs(ptr[i]);
+		}
+	}
+
+	/* Fold 32-bit sum to 16 bits */
+	while (sum >> 16) {
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+
+	return htons((uint16_t)~sum);
+}
+
+/*
+ * Calculate UDP checksum (RFC 768)
+ * Uses IP pseudo-header + UDP header + data
+ */
+static uint16_t calculate_udp_checksum(const uint8_t *iph, const uint8_t *udph, uint32_t udp_len)
+{
+	uint32_t sum = 0;
+
+	/* IP pseudo-header for UDP checksum */
+	const uint16_t *src_ip = (const uint16_t *)(iph + 12);
+	const uint16_t *dst_ip = (const uint16_t *)(iph + 16);
+
+	/* Sum source IP (2 words) */
+	sum += ntohs(src_ip[0]);
+	sum += ntohs(src_ip[1]);
+
+	/* Sum destination IP (2 words) */
+	sum += ntohs(dst_ip[0]);
+	sum += ntohs(dst_ip[1]);
+
+	/* Sum protocol (UDP = 17) + UDP length */
+	sum += 17;
+	sum += udp_len;
+
+	/* Sum UDP header + data (skip checksum field at offset 6) */
+	const uint16_t *ptr = (const uint16_t *)udph;
+	for (uint32_t i = 0; i < udp_len / 2; i++) {
+		if (i != 3) {  /* Skip UDP checksum field at offset 6 (word 3) */
+			sum += ntohs(ptr[i]);
+		}
+	}
+
+	/* Handle odd byte */
+	if (udp_len & 1) {
+		sum += (uint16_t)(udph[udp_len - 1]) << 8;
+	}
+
+	/* Fold 32-bit sum to 16 bits */
+	while (sum >> 16) {
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+
+	/* UDP checksum 0 means no checksum, use 0xFFFF instead */
+	uint16_t checksum = (uint16_t)~sum;
+	return checksum == 0 ? htons(0xFFFF) : htons(checksum);
+}
+
+/*
  * Main packet reflection function with runtime SIMD dispatch
  *
  * Automatically detects CPU capabilities and uses the fastest available
@@ -378,6 +450,9 @@ static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t 
  * - x86_64: SSE2/SSE3 SIMD
  * - ARM64: NEON SIMD
  * - Others: Optimized scalar
+ *
+ * Note: Does NOT calculate checksums - use reflect_packet_with_checksum()
+ * if software checksum calculation is needed.
  */
 ALWAYS_INLINE void reflect_packet_inplace(uint8_t *data, uint32_t len)
 {
@@ -412,6 +487,42 @@ ALWAYS_INLINE void reflect_packet_inplace(uint8_t *data, uint32_t len)
 
 	reflect_packet_inplace_scalar(data, len);
 #endif
+}
+
+/*
+ * Reflect packet with optional software checksum calculation
+ *
+ * Performs packet reflection and recalculates IP/UDP checksums if
+ * software_checksum is enabled. Use this instead of reflect_packet_inplace()
+ * when NIC checksum offload is unavailable or unreliable.
+ */
+void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_checksum)
+{
+	/* Perform SIMD/scalar packet reflection */
+	reflect_packet_inplace(data, len);
+
+	/* Recalculate checksums if software fallback enabled */
+	if (software_checksum && len >= 42) {  /* Min: 14 ETH + 20 IP + 8 UDP */
+		uint8_t *iph = data + 14;  /* IP header after Ethernet */
+		uint8_t ihl = (iph[0] & 0x0F) * 4;  /* IP header length in bytes */
+
+		if (ihl >= 20 && len >= 14 + ihl + 8) {
+			/* Recalculate IP checksum */
+			uint16_t *ip_check = (uint16_t *)(iph + 10);
+			*ip_check = 0;  /* Clear before calculation */
+			*ip_check = calculate_ip_checksum(iph, ihl);
+
+			/* Recalculate UDP checksum */
+			uint8_t *udph = iph + ihl;
+			uint16_t udp_len = ntohs(*(uint16_t *)(udph + 4));
+
+			if (len >= 14 + ihl + udp_len) {
+				uint16_t *udp_check = (uint16_t *)(udph + 6);
+				*udp_check = 0;  /* Clear before calculation */
+				*udp_check = calculate_udp_checksum(iph, udph, udp_len);
+			}
+		}
+	}
 }
 
 /*

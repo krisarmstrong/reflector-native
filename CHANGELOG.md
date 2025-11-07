@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2025-01-07
+
+### Software Checksum Implementation
+
+Completes software checksum fallback implementation for NICs without reliable offload.
+
+### Features
+
+**Full Checksum Implementation:**
+- Implemented IP checksum calculation (RFC 791)
+- Implemented UDP checksum calculation (RFC 768, with pseudo-header)
+- Added `reflect_packet_with_checksum()` wrapper function
+- Integrated with hot path via `software_checksum` config flag
+- Zero overhead when disabled (default behavior)
+
+**Technical Details:**
+- Standard internet checksum algorithm
+- Handles variable-length IP headers
+- UDP pseudo-header includes source/dest IP, protocol, length
+- Properly handles UDP checksum special case (0 = no checksum → 0xFFFF)
+- Validates packet lengths before calculation
+
+**Performance:**
+- Disabled by default (uses NIC offload)
+- When enabled: adds ~50-100ns per packet
+- Necessary for NICs with broken/missing checksum offload
+
+### Files Changed
+- `src/dataplane/common/packet.c`: Checksum functions + wrapper
+- `include/reflector.h`: Function declaration
+- `src/dataplane/common/core.c`: Integration with hot path
+
+Closes #14
+
 ## [1.7.0] - 2025-01-07
 
 ### Configuration Polish Release

@@ -149,8 +149,9 @@ static void* worker_thread(void *arg)
                     break;
                 }
 
-                /* Reflect in-place */
-                reflect_packet_inplace(pkts_rx[i].data, pkts_rx[i].len);
+                /* Reflect in-place with optional software checksums */
+                reflect_packet_with_checksum(pkts_rx[i].data, pkts_rx[i].len,
+                                            wctx->config->software_checksum);
 
                 /* Accumulate latency stats in local batch if enabled */
                 if (wctx->config->measure_latency) {

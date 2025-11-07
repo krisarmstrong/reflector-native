@@ -405,6 +405,15 @@ ito_sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len);
  */
 void reflect_packet_inplace(uint8_t *data, uint32_t len);
 
+/**
+ * Reflect packet with optional software checksum calculation
+ *
+ * @param data Packet data buffer (will be modified)
+ * @param len Packet length in bytes
+ * @param software_checksum Whether to recalculate IP/UDP checksums in software
+ */
+void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_checksum);
+
 /* ------------------------------------------------------------------------
  * Statistics Helper Functions
  * ------------------------------------------------------------------------ */
