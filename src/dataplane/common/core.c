@@ -8,9 +8,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <pthread.h>
 #include <signal.h>
+#ifndef __APPLE__
+#include <pthread.h>
 #include <sched.h>
+#else
+#include <dispatch/dispatch.h>
+#endif
 #include "reflector.h"
 #include "platform_config.h"
 
@@ -93,10 +97,16 @@ static inline void flush_stats_batch(reflector_stats_t *stats, stats_batch_t *ba
 	memset(batch, 0, sizeof(*batch));
 }
 
-/* Worker thread main loop with batched statistics */
+/* Worker main loop with batched statistics */
+#ifdef __APPLE__
+static void worker_loop(worker_ctx_t *wctx)
+#else
 static void* worker_thread(void *arg)
+#endif
 {
+#ifndef __APPLE__
     worker_ctx_t *wctx = (worker_ctx_t *)arg;
+#endif
     packet_t pkts_rx[BATCH_SIZE];
     packet_t pkts_tx[BATCH_SIZE];
     int num_tx;
@@ -218,7 +228,9 @@ static void* worker_thread(void *arg)
     flush_stats_batch(&wctx->stats, &stats_batch);
 
     reflector_log(LOG_INFO, "Worker %d stopped", wctx->worker_id);
+#ifndef __APPLE__
     return NULL;
+#endif
 }
 
 /* Initialize reflector */
@@ -322,6 +334,18 @@ int reflector_start(reflector_ctx_t *rctx)
     rctx->num_workers = rctx->config.num_workers;
     rctx->workers = calloc(rctx->num_workers, sizeof(worker_ctx_t));
     rctx->platform_contexts = calloc(rctx->num_workers, sizeof(platform_ctx_t *));
+#ifdef __APPLE__
+    rctx->worker_queues = calloc(rctx->num_workers, sizeof(dispatch_queue_t));
+    rctx->worker_group = dispatch_group_create();
+
+    if (!rctx->workers || !rctx->platform_contexts || !rctx->worker_queues || !rctx->worker_group) {
+        free(rctx->workers);
+        free(rctx->platform_contexts);
+        free(rctx->worker_queues);
+        if (rctx->worker_group) dispatch_release(rctx->worker_group);
+        return -ENOMEM;
+    }
+#else
     rctx->worker_tids = calloc(rctx->num_workers, sizeof(pthread_t));
 
     if (!rctx->workers || !rctx->platform_contexts || !rctx->worker_tids) {
@@ -330,6 +354,7 @@ int reflector_start(reflector_ctx_t *rctx)
         free(rctx->worker_tids);
         return -ENOMEM;
     }
+#endif
 
     rctx->running = true;
 
@@ -400,12 +425,38 @@ int reflector_start(reflector_ctx_t *rctx)
 
         rctx->platform_contexts[i] = wctx->pctx;
 
-        /* Create thread (store TID for joining later) */
+#ifdef __APPLE__
+        /* Create GCD queue with QoS for low-latency packet processing */
+        char queue_name[64];
+        snprintf(queue_name, sizeof(queue_name), "com.reflector.worker%d", i);
+
+        dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+            DISPATCH_QUEUE_SERIAL,
+            QOS_CLASS_USER_INTERACTIVE,  /* Highest priority for packet processing */
+            0  /* Relative priority within QoS class */
+        );
+
+        rctx->worker_queues[i] = dispatch_queue_create(queue_name, attr);
+        if (!rctx->worker_queues[i]) {
+            reflector_log(LOG_ERROR, "Failed to create GCD queue for worker %d", i);
+            reflector_stop(rctx);
+            return -1;
+        }
+
+        /* Launch worker on GCD queue */
+        dispatch_group_enter(rctx->worker_group);
+        dispatch_async(rctx->worker_queues[i], ^{
+            worker_loop(wctx);
+            dispatch_group_leave(rctx->worker_group);
+        });
+#else
+        /* Create pthread (store TID for joining later) */
         if (pthread_create(&rctx->worker_tids[i], NULL, worker_thread, wctx) != 0) {
             reflector_log(LOG_ERROR, "Failed to create worker thread %d", i);
             reflector_stop(rctx);
             return -1;
         }
+#endif
     }
 
     reflector_log(LOG_INFO, "Reflector started with %d workers", rctx->num_workers);
@@ -422,12 +473,19 @@ void reflector_stop(reflector_ctx_t *rctx)
             rctx->workers[i].running = false;
         }
 
-        /* Wait for all worker threads to exit */
+#ifdef __APPLE__
+        /* Wait for all GCD workers to finish */
+        if (rctx->worker_group) {
+            dispatch_group_wait(rctx->worker_group, DISPATCH_TIME_FOREVER);
+        }
+#else
+        /* Wait for all pthread workers to exit */
         if (rctx->worker_tids) {
             for (int i = 0; i < rctx->num_workers; i++) {
                 pthread_join(rctx->worker_tids[i], NULL);
             }
         }
+#endif
 
         /* Cleanup platform contexts */
         for (int i = 0; i < rctx->num_workers; i++) {
@@ -436,12 +494,30 @@ void reflector_stop(reflector_ctx_t *rctx)
             }
         }
 
+#ifdef __APPLE__
+        /* Release GCD resources */
+        if (rctx->worker_queues) {
+            for (int i = 0; i < rctx->num_workers; i++) {
+                if (rctx->worker_queues[i]) {
+                    dispatch_release(rctx->worker_queues[i]);
+                }
+            }
+            free(rctx->worker_queues);
+            rctx->worker_queues = NULL;
+        }
+        if (rctx->worker_group) {
+            dispatch_release(rctx->worker_group);
+            rctx->worker_group = NULL;
+        }
+#else
+        free(rctx->worker_tids);
+        rctx->worker_tids = NULL;
+#endif
+
         free(rctx->workers);
         free(rctx->platform_contexts);
-        free(rctx->worker_tids);
         rctx->workers = NULL;
         rctx->platform_contexts = NULL;
-        rctx->worker_tids = NULL;
     }
 
     reflector_log(LOG_INFO, "Reflector stopped");
