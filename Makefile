@@ -132,6 +132,15 @@ test-utils: $(TARGET)
 	@./tests/test_utils
 	@echo "✅ Utility tests passed!"
 
+# Integration tests (exclude main.o to avoid main() conflict)
+test-integration: $(TARGET)
+	@echo "Running integration tests..."
+	$(CC) $(CFLAGS) $(INCLUDES) tests/test_integration.c \
+		src/dataplane/common/packet.o src/dataplane/common/util.o src/dataplane/common/core.o \
+		$(PLATFORM_OBJS) -o tests/test_integration
+	@./tests/test_integration
+	@echo "✅ Integration tests passed!"
+
 # Performance benchmarks
 test-benchmark: $(TARGET)
 	@echo "Running performance benchmarks..."
@@ -140,7 +149,7 @@ test-benchmark: $(TARGET)
 	@./tests/test_benchmark
 
 # Run all tests
-test-all: test test-utils test-benchmark
+test-all: test test-utils test-integration test-benchmark
 	@echo ""
 	@echo "====================================="
 	@echo "✅ All tests passed!"

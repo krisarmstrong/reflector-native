@@ -384,6 +384,14 @@ int get_queue_cpu_affinity(const char *ifname, int queue_id);
  */
 uint64_t get_timestamp_ns(void);
 
+/**
+ * Drop unnecessary privileges after initialization
+ * On Linux: Drops to 'nobody' user if running as root
+ * On macOS: No-op (BPF requires root or group access)
+ * @return 0 on success, -1 on error (non-fatal warning on Linux)
+ */
+int drop_privileges(void);
+
 /* ------------------------------------------------------------------------
  * Packet Validation and Reflection
  * ------------------------------------------------------------------------ */

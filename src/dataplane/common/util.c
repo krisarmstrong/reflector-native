@@ -17,6 +17,16 @@
 #include <arpa/inet.h>
 #include <stdarg.h>
 
+/* Safe string copy macro - uses strlcpy on macOS, manual null termination elsewhere */
+#ifdef __APPLE__
+#define SAFE_STRNCPY(dst, src, size) strlcpy(dst, src, size)
+#else
+#define SAFE_STRNCPY(dst, src, size) do { \
+    strncpy(dst, src, (size) - 1); \
+    (dst)[(size) - 1] = '\0'; \
+} while(0)
+#endif
+
 #ifdef __linux__
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
@@ -80,7 +90,9 @@ int get_interface_index(const char *ifname)
 {
     unsigned int ifindex = if_nametoindex(ifname);
     if (ifindex == 0) {
-        reflector_log(LOG_ERROR, "Interface %s not found: %s", ifname, strerror(errno));
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Interface %s not found: %s", ifname, strerror(saved_errno));
+        errno = saved_errno;
         return -1;
     }
     return (int)ifindex;
@@ -97,18 +109,22 @@ int get_interface_mac(const char *ifname, uint8_t mac[6])
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {
-        reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(errno));
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(saved_errno));
+        errno = saved_errno;
         return -1;
     }
 
     memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+    SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
 
     ret = ioctl(fd, SIOCGIFHWADDR, &ifr);
     if (ret < 0) {
+        int saved_errno = errno;
         reflector_log(LOG_ERROR, "Failed to get MAC address for %s: %s",
-                     ifname, strerror(errno));
+                     ifname, strerror(saved_errno));
         close(fd);
+        errno = saved_errno;
         return -1;
     }
 
@@ -120,7 +136,9 @@ int get_interface_mac(const char *ifname, uint8_t mac[6])
     struct ifaddrs *ifap, *ifaptr;
 
     if (getifaddrs(&ifap) != 0) {
-        reflector_log(LOG_ERROR, "Failed to get interface list: %s", strerror(errno));
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to get interface list: %s", strerror(saved_errno));
+        errno = saved_errno;
         return -1;
     }
 
@@ -176,8 +194,10 @@ int get_num_rx_queues(const char *ifname)
     close(fd);
 
     if (ret < 0) {
+        int saved_errno = errno;
         reflector_log(LOG_WARN, "Failed to query channels for %s, assuming 1 queue: %s",
-                     ifname, strerror(errno));
+                     ifname, strerror(saved_errno));
+        errno = saved_errno;
         return 1;
     }
 
@@ -243,18 +263,22 @@ int set_interface_promisc(const char *ifname, bool enable)
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {
-        reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(errno));
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(saved_errno));
+        errno = saved_errno;
         return -1;
     }
 
     memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+    SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
 
     /* Get current flags */
     ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
     if (ret < 0) {
-        reflector_log(LOG_ERROR, "Failed to get interface flags: %s", strerror(errno));
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to get interface flags: %s", strerror(saved_errno));
         close(fd);
+        errno = saved_errno;
         return -1;
     }
 
@@ -268,8 +292,10 @@ int set_interface_promisc(const char *ifname, bool enable)
     /* Set new flags */
     ret = ioctl(fd, SIOCSIFFLAGS, &ifr);
     if (ret < 0) {
-        reflector_log(LOG_ERROR, "Failed to set interface flags: %s", strerror(errno));
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to set interface flags: %s", strerror(saved_errno));
         close(fd);
+        errno = saved_errno;
         return -1;
     }
 
@@ -293,7 +319,7 @@ bool is_interface_up(const char *ifname)
     }
 
     memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+    SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
 
     ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
     close(fd);
@@ -303,4 +329,54 @@ bool is_interface_up(const char *ifname)
     }
 
     return (ifr.ifr_flags & IFF_UP) != 0;
+}
+
+/*
+ * Drop unnecessary privileges after socket/interface initialization
+ * On Linux: Tries to drop to 'nobody' user if running as root
+ * On macOS: No-op (BPF requires root or specific group membership)
+ */
+int drop_privileges(void)
+{
+#ifdef __linux__
+    /* Only drop privileges if running as root */
+    if (getuid() != 0 && geteuid() != 0) {
+        reflector_log(LOG_DEBUG, "Not running as root, no privileges to drop");
+        return 0;
+    }
+
+    /* Try to drop to 'nobody' user (UID 65534 on most systems) */
+    uid_t nobody_uid = 65534;
+    gid_t nobody_gid = 65534;
+
+    /* Drop supplementary groups */
+    if (setgroups(0, NULL) < 0) {
+        int saved_errno = errno;
+        reflector_log(LOG_WARN, "Failed to drop supplementary groups: %s", strerror(saved_errno));
+        /* Continue - not fatal */
+    }
+
+    /* Drop group privileges */
+    if (setgid(nobody_gid) < 0) {
+        int saved_errno = errno;
+        reflector_log(LOG_WARN, "Failed to drop group privileges: %s", strerror(saved_errno));
+        errno = saved_errno;
+        return -1;
+    }
+
+    /* Drop user privileges */
+    if (setuid(nobody_uid) < 0) {
+        int saved_errno = errno;
+        reflector_log(LOG_WARN, "Failed to drop user privileges: %s", strerror(saved_errno));
+        errno = saved_errno;
+        return -1;
+    }
+
+    reflector_log(LOG_INFO, "Dropped privileges to nobody (uid=%d, gid=%d)", nobody_uid, nobody_gid);
+    return 0;
+#else
+    /* macOS BPF requires root or /dev/bpf group membership - don't drop */
+    reflector_log(LOG_DEBUG, "Privilege dropping not implemented on macOS");
+    return 0;
+#endif
 }
