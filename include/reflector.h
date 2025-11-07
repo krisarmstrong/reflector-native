@@ -239,42 +239,195 @@ typedef struct {
 
 } platform_ops_t;
 
-/* Function declarations */
+/* ========================================================================
+ * FUNCTION DECLARATIONS
+ * ======================================================================== */
 
-/* Core initialization and cleanup */
+/* ------------------------------------------------------------------------
+ * Core Initialization and Cleanup
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Initialize reflector context for specified network interface
+ * @param rctx Reflector context to initialize (must be zeroed)
+ * @param ifname Network interface name (e.g., "eth0", "en0")
+ * @return 0 on success, -1 on error
+ */
 int reflector_init(reflector_ctx_t *rctx, const char *ifname);
+
+/**
+ * Cleanup reflector and release all resources
+ * @param rctx Reflector context to cleanup
+ */
 void reflector_cleanup(reflector_ctx_t *rctx);
 
-/* Start/stop reflection */
+/* ------------------------------------------------------------------------
+ * Start/Stop Packet Reflection
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Start packet reflection on all configured worker threads
+ * @param rctx Initialized reflector context
+ * @return 0 on success, negative error code on failure
+ */
 int reflector_start(reflector_ctx_t *rctx);
+
+/**
+ * Stop packet reflection and wait for all workers to exit
+ * @param rctx Running reflector context
+ */
 void reflector_stop(reflector_ctx_t *rctx);
 
-/* Configuration */
+/* ------------------------------------------------------------------------
+ * Configuration Management
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Update reflector configuration (must call before start)
+ * @param rctx Reflector context
+ * @param config New configuration to apply
+ * @return 0 on success, -1 on error
+ */
 int reflector_set_config(reflector_ctx_t *rctx, const reflector_config_t *config);
+
+/**
+ * Get current reflector configuration
+ * @param rctx Reflector context
+ * @param config Output buffer for configuration
+ */
 void reflector_get_config(const reflector_ctx_t *rctx, reflector_config_t *config);
 
-/* Statistics */
+/* ------------------------------------------------------------------------
+ * Statistics Collection
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Get aggregated statistics from all worker threads
+ * @param rctx Reflector context
+ * @param stats Output buffer for statistics
+ */
 void reflector_get_stats(const reflector_ctx_t *rctx, reflector_stats_t *stats);
+
+/**
+ * Reset all statistics counters to zero
+ * @param rctx Reflector context
+ */
 void reflector_reset_stats(reflector_ctx_t *rctx);
 
-/* Utility functions */
+/* ------------------------------------------------------------------------
+ * Network Interface Utilities
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Get interface index from interface name
+ * @param ifname Interface name (e.g., "eth0")
+ * @return Interface index on success, -1 on error
+ */
 int get_interface_index(const char *ifname);
+
+/**
+ * Get MAC address for specified interface
+ * @param ifname Interface name
+ * @param mac Output buffer for 6-byte MAC address
+ * @return 0 on success, -1 on error
+ */
 int get_interface_mac(const char *ifname, uint8_t mac[6]);
+
+/**
+ * Get number of RX queues for interface
+ * @param ifname Interface name
+ * @return Number of queues, or 1 if unable to determine
+ */
 int get_num_rx_queues(const char *ifname);
+
+/**
+ * Get CPU affinity for specific queue (best-effort heuristic)
+ * @param ifname Interface name
+ * @param queue_id Queue ID to query
+ * @return CPU ID, or -1 if unable to determine
+ */
 int get_queue_cpu_affinity(const char *ifname, int queue_id);
+
+/**
+ * Get high-resolution monotonic timestamp in nanoseconds
+ * @return Timestamp in nanoseconds, or 0 on error
+ */
 uint64_t get_timestamp_ns(void);
 
-/* Packet validation and reflection */
+/* ------------------------------------------------------------------------
+ * Packet Validation and Reflection
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Validate if packet is an ITO test packet
+ * Fast-path validation with branch prediction hints.
+ * @param data Packet data buffer
+ * @param len Packet length in bytes
+ * @param mac Expected destination MAC address
+ * @return true if valid ITO packet, false otherwise
+ */
 bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6]);
+
+/**
+ * Get ITO signature type from validated packet
+ * @param data Packet data buffer (must be validated first)
+ * @param len Packet length in bytes
+ * @return Signature type (PROBEOT, DATAOT, LATENCY, or UNKNOWN)
+ */
 ito_sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len);
+
+/**
+ * Reflect packet in-place by swapping MAC/IP/port headers
+ * Uses SIMD instructions when available (SSE2/NEON).
+ * Modifies packet buffer directly (zero-copy).
+ * NOTE: Checksums handled by NIC offload or ignored by test tools
+ * @param data Packet data buffer (will be modified)
+ * @param len Packet length in bytes
+ */
 void reflect_packet_inplace(uint8_t *data, uint32_t len);
 
-/* Statistics helpers */
+/* ------------------------------------------------------------------------
+ * Statistics Helper Functions
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Update per-signature statistics counters
+ * @param stats Statistics structure to update
+ * @param sig_type Signature type to increment
+ */
 void update_signature_stats(reflector_stats_t *stats, ito_sig_type_t sig_type);
+
+/**
+ * Update latency statistics with new measurement
+ * @param latency Latency statistics structure
+ * @param latency_ns Latency measurement in nanoseconds
+ */
 void update_latency_stats(latency_stats_t *latency, uint64_t latency_ns);
+
+/**
+ * Update error statistics by category
+ * @param stats Statistics structure to update
+ * @param err_cat Error category
+ */
 void update_error_stats(reflector_stats_t *stats, error_category_t err_cat);
+
+/**
+ * Print statistics in specified format
+ * @param stats Statistics to print
+ * @param format Output format (TEXT/JSON/CSV)
+ */
 void reflector_print_stats_formatted(const reflector_stats_t *stats, stats_format_t format);
+
+/**
+ * Print statistics in JSON format
+ * @param stats Statistics to print
+ */
 void reflector_print_stats_json(const reflector_stats_t *stats);
+
+/**
+ * Print statistics in CSV format
+ * @param stats Statistics to print
+ */
 void reflector_print_stats_csv(const reflector_stats_t *stats);
 
 /* Platform detection */

@@ -55,7 +55,7 @@ static void detect_cpu_features(void)
 #include <arm_neon.h>
 
 /* ARM64 always has NEON, no runtime detection needed */
-static int cpu_has_neon = 1;
+static int cpu_has_neon __attribute__((unused)) = 1;
 #endif /* __aarch64__ */
 
 /*
@@ -332,6 +332,7 @@ static ALWAYS_INLINE void reflect_packet_inplace_neon(uint8_t *data, uint32_t le
  * Assumes packet has been validated by is_ito_packet()
  * Optimized with direct integer swaps and prefetching
  */
+__attribute__((unused))
 static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t len)
 {
 	(void)len;  /* Length not needed for in-place swapping */
