@@ -343,10 +343,6 @@ git commit -m "Docs: improve quickstart guide"
 Type: Brief description
 
 Longer explanation if needed
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 Types: `Fix:`, `Add:`, `Update:`, `Docs:`, `Test:`, `Refactor:`
