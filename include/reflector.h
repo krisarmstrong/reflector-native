@@ -10,8 +10,14 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <pthread.h>
 #include <sys/types.h>
+
+/* Threading support: GCD on macOS, pthreads elsewhere */
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#else
+#include <pthread.h>
+#endif
 
 /* Version information - Auto-generated from git tags */
 #include "version_generated.h"
@@ -231,7 +237,12 @@ typedef struct {
     reflector_config_t config;
     platform_ctx_t **platform_contexts;  /* Array of per-worker contexts */
     worker_ctx_t *workers;
+#ifdef __APPLE__
+    dispatch_group_t worker_group;       /* GCD group for worker synchronization */
+    dispatch_queue_t *worker_queues;     /* Per-worker GCD queues */
+#else
     pthread_t *worker_tids;              /* Thread IDs for joining */
+#endif
     reflector_stats_t global_stats;
     volatile bool running;
     int num_workers;
