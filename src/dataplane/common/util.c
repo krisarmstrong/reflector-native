@@ -57,7 +57,10 @@ void reflector_log(log_level_t level, const char *fmt, ...)
     };
 
     struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+    if (clock_gettime(CLOCK_REALTIME, &ts) < 0) {
+        ts.tv_sec = 0;
+        ts.tv_nsec = 0;
+    }
 
     fprintf(stderr, "[%ld.%06ld] [%s] ",
             ts.tv_sec, ts.tv_nsec / 1000, level_str[level]);
@@ -221,7 +224,9 @@ int get_queue_cpu_affinity(const char *ifname, int queue_id)
 uint64_t get_timestamp_ns(void)
 {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
+        return 0;  /* Fallback on error */
+    }
     return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
