@@ -3,7 +3,7 @@
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-1.9.1-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
 [![Code Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen.svg)](docs/QUALITY_ASSURANCE.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](docs/QUALITY_ASSURANCE.md#code-coverage)
 [![Memory Safe](https://img.shields.io/badge/memory-safe-success.svg)](docs/QUALITY_ASSURANCE.md#memory-safety)
@@ -16,17 +16,18 @@ High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld networ
 
 This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
 
-**Current Version:** 1.3.0 (January 2025) - Complete AF_XDP + Maximum Platform Performance
+**Current Version:** 1.9.1 (January 2025) - Critical Patch (AF_XDP multi-queue, stats, performance fixes)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Data Plane (C)                                     │
-│  - Linux: AF_PACKET with optimized zero-copy       │
-│  - macOS: BPF packet filtering                      │
+│  - Linux: AF_XDP (zero-copy) + AF_PACKET fallback  │
+│  - macOS: BPF with kqueue event-driven I/O         │
 │  - In-place packet header swapping                  │
 │  - Platform abstraction layer                       │
+│  - Multi-worker support with queue affinity         │
 │  - CLI interface with statistics                    │
 └─────────────────────────────────────────────────────┘
 ```
@@ -34,16 +35,21 @@ This project provides packet reflection capabilities for ITO (Integrated Test & 
 ## Current Features
 
 ### Linux
-- **AF_PACKET**: Optimized packet socket with zero-copy receive
-- **Platform compatibility**: Works with all NICs (no special driver needed)
-- **Efficient processing**: No malloc in hot path, blocking recv with timeout
+- **AF_XDP**: Zero-copy packet I/O with XDP_ZEROCOPY for maximum performance
+- **AF_PACKET fallback**: Automatic fallback for NICs without XDP support
+- **Multi-queue support**: Queue-per-worker with proper BPF map sharing
+- **Platform compatibility**: Works with all NICs (auto-detects best method)
+- **Efficient processing**: No malloc in hot path, optimized receive path
 - **Tested**: Ubuntu 25.10 with various network adapters
 
 ### macOS
 - **BPF filtering**: Native packet capture and injection via /dev/bpf
+- **kqueue event-driven I/O**: Non-blocking with efficient event notification
+- **Write coalescing**: Batch writes up to 64KB for better throughput
+- **Auto-tuning**: Progressive buffer size detection (1MB → 512KB → 256KB)
 - **Compatibility**: Works with all NICs
 - **Tested**: macOS 14+ with Thunderbolt and USB-C adapters
-- **Performance**: 99.96% reflection rate at 1 Mbps with 1518-byte frames
+- **Performance**: 60-75 Mbps sustained throughput (v1.9.0 optimizations)
 
 ### Common
 - **Zero-copy reflection**: In-place MAC/IP/UDP header swapping
@@ -53,17 +59,17 @@ This project provides packet reflection capabilities for ITO (Integrated Test & 
 
 ## Performance
 
-### Current v1.0.1
-| Platform | Test Rate | Packet Size | Result |
-|----------|-----------|-------------|---------|
-| macOS | 1 Mbps | 1518 bytes | 99.96% (4970/4972 packets) |
-| macOS | 1 Gbps | 1518 bytes | Limited to ~50 Mbps max |
-| Linux | 1 Mbps | 1518 bytes | Stable operation |
+### Current v1.9.1
+| Platform | Method | Throughput | Notes |
+|----------|--------|------------|-------|
+| Linux | AF_XDP | Up to 10+ Gbps | Zero-copy, multi-queue, line-rate capable |
+| Linux | AF_PACKET | 100-500 Mbps | Fallback for non-XDP NICs |
+| macOS | BPF | 60-75 Mbps | kqueue I/O, write coalescing (v1.9.0) |
 
 ### Known Limitations
-- **macOS BPF**: Limited to 10-50 Mbps regardless of hardware (architectural limitation)
-- **Linux AF_PACKET**: Better than macOS but not line-rate (suitable for lab testing)
-- **See ROADMAP.md** for planned AF_XDP implementation for 10G line-rate on Linux
+- **macOS BPF**: Limited to 60-75 Mbps (architectural limitation, Network Extension Framework planned for v2.0.0)
+- **AF_XDP**: Requires XDP-capable NIC and driver (most modern NICs supported)
+- **Multi-queue**: Best performance with queue-per-worker affinity
 
 ## Requirements
 

@@ -28,6 +28,14 @@
 
 #include "reflector.h"
 
+/* Shared BPF resources across all workers (only worker 0 initializes) */
+static struct bpf_object *g_bpf_obj = NULL;
+static int g_xsks_map_fd = -1;
+static int g_mac_map_fd = -1;
+static int g_sig_map_fd = -1;
+static int g_stats_map_fd = -1;
+static int g_prog_fd = -1;
+
 /* Platform-specific context for AF_XDP */
 struct platform_ctx {
     struct xsk_socket_info {
@@ -184,6 +192,14 @@ static int load_xdp_program(worker_ctx_t *wctx)
     }
     reflector_log(LOG_INFO, "Loaded %d ITO signatures into XDP hash map", 3);
 
+    /* Save to globals so other workers can use them */
+    g_bpf_obj = pctx->bpf_obj;
+    g_xsks_map_fd = pctx->xsks_map_fd;
+    g_mac_map_fd = pctx->mac_map_fd;
+    g_sig_map_fd = pctx->sig_map_fd;
+    g_stats_map_fd = pctx->stats_map_fd;
+    g_prog_fd = pctx->prog_fd;
+
     /* Attach XDP program to interface */
     ret = bpf_xdp_attach(cfg->ifindex, pctx->prog_fd, XDP_FLAGS_DRV_MODE, NULL);
     if (ret) {
@@ -254,6 +270,7 @@ static int init_xsk(worker_ctx_t *wctx)
  */
 int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 {
+    reflector_config_t *cfg = wctx->config;
     struct platform_ctx *pctx = calloc(1, sizeof(*pctx));
     if (!pctx) {
         reflector_log(LOG_ERROR, "Failed to allocate platform context");
@@ -328,6 +345,14 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
             free(pctx);
             return ret;
         }
+    } else {
+        /* Other workers use the shared BPF resources from worker 0 */
+        pctx->bpf_obj = g_bpf_obj;
+        pctx->xsks_map_fd = g_xsks_map_fd;
+        pctx->mac_map_fd = g_mac_map_fd;
+        pctx->sig_map_fd = g_sig_map_fd;
+        pctx->stats_map_fd = g_stats_map_fd;
+        pctx->prog_fd = g_prog_fd;
     }
 
     /* Initialize AF_XDP socket */
@@ -344,7 +369,7 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
     }
 
     /* Populate fill queue with initial buffers */
-    populate_fill_queue(pctx, NUM_FRAMES / 2);
+    populate_fill_queue(pctx, pctx->num_frames / 2);
 
     pctx->xsk_info.outstanding_tx = 0;
 
@@ -414,9 +439,6 @@ int xdp_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
 
         /* Only timestamp if latency measurement is enabled (avoid hot-path syscall overhead) */
         pkts[i].timestamp = wctx->config->measure_latency ? get_timestamp_ns() : 0;
-
-        wctx->stats.packets_received++;
-        wctx->stats.bytes_received += len;
     }
 
     /* Release RX descriptors */
