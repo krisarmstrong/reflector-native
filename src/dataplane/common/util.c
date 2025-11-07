@@ -207,8 +207,11 @@ int get_num_rx_queues(const char *ifname)
 int get_queue_cpu_affinity(const char *ifname, int queue_id)
 {
 #ifdef __linux__
-    /* For now, simple round-robin assignment */
-    /* TODO: Parse /proc/irq for actual IRQ affinity */
+    /*
+     * Use simple round-robin CPU assignment for queue affinity.
+     * For production use with IRQ affinity tuning, parse /proc/irq
+     * or use ethtool --show-rxfh-indir to get actual queue-to-CPU mapping.
+     */
     (void)ifname;
     return queue_id % sysconf(_SC_NPROCESSORS_ONLN);
 #else
