@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2025-01-07
+
+### CRITICAL PATCH - AF_XDP Multi-Queue and Performance Fixes
+
+This patch addresses critical bugs found in code review that prevented proper operation on multi-queue AF_XDP systems and caused performance degradation.
+
+### Fixed
+
+**Bug #21: AF_XDP Multi-Queue Support**
+- Fixed critical issue where only worker 0 initialized BPF resources
+- Workers 1+ now properly share xsks_map, mac_map, sig_map, stats_map, and prog_fd
+- All workers can now update xsks_map with their socket FDs
+- Enables proper packet distribution across multiple queues
+- Reference: GitHub Issue #21
+
+**Bug #22: AF_XDP Statistics Double-Counting**
+- Removed duplicate stats increments in xdp_platform.c recv_batch()
+- Stats now properly counted only once in core.c like other platforms
+- Fixes 2x inflated packet/byte counters on Linux AF_XDP
+- Reference: GitHub Issue #22
+
+**Bug #23: Hard-Coded UMEM Frame Count**
+- Changed `NUM_FRAMES / 2` to `pctx->num_frames / 2` in populate_fill_queue()
+- Uses actual allocated frame count instead of compile-time constant
+- Prevents potential UMEM corruption with non-default configurations
+- Reference: GitHub Issue #23
+
+**Bug #24: Hot-Path Logging Performance Kill**
+- Changed `reflector_log(LOG_INFO, ...)` to `DEBUG_LOG(...)` in packet validation
+- Prevents stderr flooding at 1+ Mpps packet rates
+- Restores hot-path performance (was killing throughput)
+- Debug output now compile-time optional
+- Reference: GitHub Issue #24
+
+**Bug #25: Undefined Variable in xdp_platform_init**
+- Added missing `reflector_config_t *cfg = wctx->config;` declaration
+- Fixed compilation error at line 257 in xdp_platform.c
+- Reference: GitHub Issue #25
+
+### Notes
+- All fixes are critical for production deployment
+- Multi-queue fix enables proper multi-core scaling on Linux
+- Stats fix corrects monitoring and metrics
+- Performance fixes restore expected throughput levels
+
 ## [1.9.0] - 2025-01-07
 
 ### macOS BPF Performance Optimizations (Quick Win Release)

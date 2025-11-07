@@ -156,7 +156,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	if (likely(memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
 	           memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
 	           memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0)) {
-		reflector_log(LOG_INFO, "ITO packet matched! len=%u", len);
+		DEBUG_LOG("ITO packet matched! len=%u", len);
 		return true;
 	}
 
