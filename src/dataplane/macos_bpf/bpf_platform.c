@@ -78,22 +78,88 @@ static int open_bpf_device(void)
 }
 
 /*
- * Set BPF filter program
- * For now, accept all packets and filter in userspace
- * (BPF instruction offsets are complex and error-prone)
+ * Set BPF filter program for ITO packet classification
+ *
+ * Filters at kernel level to only copy ITO packets to userspace:
+ * - Ethernet with matching destination MAC
+ * - IPv4 (EtherType 0x0800)
+ * - UDP (protocol 17)
+ * - ITO signatures (PROBEOT, DATA:OT, LATENCY) at offset 5 in UDP payload
+ *
+ * This significantly reduces CPU usage by avoiding unnecessary packet copies.
  */
 static int set_bpf_filter(int fd, const uint8_t mac[6])
 {
-    (void)mac;  /* Filter in userspace instead */
+    /*
+     * Classic BPF program structure:
+     * - Load operations (BPF_LD) read packet data
+     * - Jump operations (BPF_JMP) conditionally branch
+     * - Return (BPF_RET) accepts (non-zero) or rejects (0)
+     *
+     * Offsets:
+     * - 0-5: Destination MAC
+     * - 12-13: EtherType
+     * - 14+9: IP protocol (14 is ETH_HLEN, +9 for protocol field)
+     * - 14+20+8+5: UDP payload+5 for ITO signature (14 ETH + 20 IP + 8 UDP + 5 offset)
+     */
 
-    /* Simple filter: accept all packets, we'll filter in userspace */
     struct bpf_insn insns[] = {
-        /* Return full packet length (accept all) */
+        /* Load destination MAC byte 0 and compare */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 0),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, mac[0], 0, 22),
+
+        /* Load destination MAC byte 1 and compare */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 1),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, mac[1], 0, 20),
+
+        /* Load destination MAC byte 2 and compare */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 2),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, mac[2], 0, 18),
+
+        /* Load destination MAC byte 3 and compare */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 3),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, mac[3], 0, 16),
+
+        /* Load destination MAC byte 4 and compare */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 4),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, mac[4], 0, 14),
+
+        /* Load destination MAC byte 5 and compare */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 5),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, mac[5], 0, 12),
+
+        /* Load EtherType (2 bytes at offset 12) and check for IPv4 (0x0800) */
+        BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 12),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0x0800, 0, 10),
+
+        /* Load IP protocol byte (offset 14+9=23) and check for UDP (17) */
+        BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 23),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 17, 0, 8),
+
+        /* Check for ITO signature at UDP payload offset 5 */
+        /* ITO signatures are 7 bytes at offset: 14 (ETH) + 20 (IP) + 8 (UDP) + 5 (offset) = 47 */
+
+        /* Check for "PROBEOT" (first 4 bytes: "PROB" = 0x50524F42) */
+        BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 47),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0x50524F42, 3, 0),  /* 'P''R''O''B' */
+
+        /* Check for "DATA:OT" (first 4 bytes: "DATA" = 0x44415441) */
+        BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 47),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0x44415441, 1, 0),  /* 'D''A''T''A' */
+
+        /* Check for "LATENCY" (first 4 bytes: "LATE" = 0x4C415445) */
+        BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 47),
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0x4C415445, 0, 1),  /* 'L''A''T''E' */
+
+        /* Accept packet (return full length) */
         BPF_STMT(BPF_RET + BPF_K, (u_int)-1),
+
+        /* Reject packet (return 0) */
+        BPF_STMT(BPF_RET + BPF_K, 0),
     };
 
     struct bpf_program filter = {
-        .bf_len = 1,
+        .bf_len = sizeof(insns) / sizeof(insns[0]),
         .bf_insns = insns
     };
 
@@ -103,7 +169,7 @@ static int set_bpf_filter(int fd, const uint8_t mac[6])
         return saved_errno ? -saved_errno : -EIO;
     }
 
-    reflector_log(LOG_DEBUG, "BPF filter installed (accept all, filter in userspace)");
+    reflector_log(LOG_INFO, "Kernel-level BPF filter installed (filters ITO packets before userspace copy)");
     return 0;
 }
 
