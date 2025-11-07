@@ -272,29 +272,40 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 
     /* Allocate UMEM buffer */
     uint64_t umem_size = pctx->num_frames * pctx->frame_size;
+    void *umem_buffer;
 
-    /* Try with hugepages first for better performance */
+    /* Try huge pages if enabled in config (better TLB utilization) */
+    if (cfg->use_huge_pages) {
 #ifndef MAP_HUGETLB
 #define MAP_HUGETLB 0x40000  /* Linux-specific flag for huge pages */
 #endif
-    void *umem_buffer = mmap(NULL, umem_size,
-                            PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
-                            -1, 0);
+        umem_buffer = mmap(NULL, umem_size,
+                          PROT_READ | PROT_WRITE,
+                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
+                          -1, 0);
 
-    if (umem_buffer == MAP_FAILED) {
-        /* Fallback to normal pages if hugepages not available */
-        reflector_log(LOG_WARN, "Hugepages not available, using normal pages");
+        if (umem_buffer == MAP_FAILED) {
+            reflector_log(LOG_WARN, "Huge pages requested but not available, falling back to normal pages");
+            umem_buffer = mmap(NULL, umem_size,
+                              PROT_READ | PROT_WRITE,
+                              MAP_PRIVATE | MAP_ANONYMOUS,
+                              -1, 0);
+        } else {
+            reflector_log(LOG_INFO, "Using huge pages for UMEM (reduces TLB misses)");
+        }
+    } else {
+        /* Use normal pages */
         umem_buffer = mmap(NULL, umem_size,
                           PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS,
                           -1, 0);
-        if (umem_buffer == MAP_FAILED) {
-            int saved_errno = errno;
-            reflector_log(LOG_ERROR, "Failed to allocate UMEM: %s", strerror(saved_errno));
-            free(pctx);
-            return saved_errno ? -saved_errno : -ENOMEM;
-        }
+    }
+
+    if (umem_buffer == MAP_FAILED) {
+        int saved_errno = errno;
+        reflector_log(LOG_ERROR, "Failed to allocate UMEM: %s", strerror(saved_errno));
+        free(pctx);
+        return saved_errno ? -saved_errno : -ENOMEM;
     }
 
     reflector_log(LOG_INFO, "Allocated UMEM: %lu MB (%u frames of %u bytes)",

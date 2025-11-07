@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2025-01-07
+
+### Linux Platform Optimizations Release
+
+Performance tuning for Linux AF_XDP: configurable CPU affinity pinning and huge pages support for reduced TLB misses.
+
+### Performance Enhancements
+
+**CPU Affinity Configuration:**
+- Added `cpu_affinity` config field (default: -1 for auto-detect from IRQ)
+- Manual CPU pinning for NUMA-aware deployment
+- Falls back to IRQ-based affinity detection if not specified
+- Enables cache-local packet processing
+
+**Huge Pages for UMEM:**
+- Added `use_huge_pages` config field (default: false)
+- Uses 2MB/1GB pages instead of 4KB when enabled
+- Reduces TLB (Translation Lookaside Buffer) misses
+- Improves memory access latency for UMEM
+- Automatic fallback to normal pages if huge pages unavailable
+- **Requires**: `vm.nr_hugepages` kernel configuration
+
+**Implementation:**
+- `include/reflector.h`: Added config fields
+- `src/dataplane/common/core.c`: CPU affinity override logic
+- `src/dataplane/linux_xdp/xdp_platform.c`: Conditional huge pages allocation
+
+**Setup for Huge Pages:**
+```bash
+# Reserve 512 huge pages (1GB)
+sudo sysctl -w vm.nr_hugepages=512
+
+# Or persistent:
+echo "vm.nr_hugepages=512" | sudo tee -a /etc/sysctl.conf
+```
+
+### Files Changed
+- `include/reflector.h`: CPU affinity and huge pages config
+- `src/dataplane/common/core.c`: CPU pinning with config override
+- `src/dataplane/linux_xdp/xdp_platform.c`: Conditional huge pages
+
+Part of #12
+
 ## [1.4.0] - 2025-01-07
 
 ### XDP eBPF Optimization Release

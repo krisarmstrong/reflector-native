@@ -232,6 +232,8 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
     rctx->config.num_frames = NUM_FRAMES;
     rctx->config.batch_size = BATCH_SIZE;
     rctx->config.poll_timeout_ms = 100;
+    rctx->config.cpu_affinity = -1;  /* Auto: use IRQ affinity */
+    rctx->config.use_huge_pages = false;  /* Disabled by default */
 
     /* Get interface info */
     rctx->config.ifindex = get_interface_index(ifname);
@@ -334,7 +336,10 @@ int reflector_start(reflector_ctx_t *rctx)
         worker_ctx_t *wctx = &rctx->workers[i];
         wctx->worker_id = i;
         wctx->queue_id = i;
-        wctx->cpu_id = get_queue_cpu_affinity(rctx->config.ifname, i);
+        /* Use explicit CPU affinity if configured, otherwise auto-detect from IRQ */
+        wctx->cpu_id = (rctx->config.cpu_affinity >= 0) ?
+                       rctx->config.cpu_affinity :
+                       get_queue_cpu_affinity(rctx->config.ifname, i);
         wctx->config = &rctx->config;
         wctx->running = true;
 
