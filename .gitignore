@@ -3,6 +3,11 @@ reflector-linux
 reflector-macos
 reflector
 
+# Test binaries
+tests/test_packet
+tests/test_benchmark
+tests/test_utils
+
 # Object files
 *.o
 *.so
