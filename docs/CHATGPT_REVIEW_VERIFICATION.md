@@ -585,7 +585,7 @@ ChatGPT found all 5 bugs in a focused, systematic review.
 ## Lessons Learned
 
 1. **My review missed critical bugs** - Need better verification
-2. **Gemini's review missed critical bugs** - AI reviews aren't perfect
+2. **Gemini's review missed critical bugs** - Automated reviews aren't perfect
 3. **ChatGPT's systematic approach found bugs** - Different methodology works
 4. **Never give 5.0/5.0 without compiling and testing** - Hubris!
 5. **Platform-specific code needs more scrutiny** - AF_XDP was under-reviewed
