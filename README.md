@@ -1,4 +1,6 @@
 # Network Reflector - Native Linux/macOS Implementation
+[![Checks](https://github.com/krisarmstrong/reflector-native/actions/workflows/checks.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/checks.yml)
+
 
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
@@ -225,6 +227,12 @@ reflector-native/
 ```
 
 ## Development
+Run the full local checks:
+
+```bash
+./check.sh
+```
+
 
 ### Building from Source
 ```bash

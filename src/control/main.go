@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -58,7 +57,9 @@ func (r *Reflector) Stop() error {
 		return err
 	}
 
-	r.cmd.Wait()
+	if err := r.cmd.Wait(); err != nil {
+		return err
+	}
 	r.running = false
 	return nil
 }
@@ -83,7 +84,9 @@ func main() {
 	go func() {
 		<-sigChan
 		fmt.Println("\nShutting down...")
-		r.Stop()
+		if err := r.Stop(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error stopping reflector: %v\n", err)
+		}
 		os.Exit(0)
 	}()
 
