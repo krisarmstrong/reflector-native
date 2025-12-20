@@ -5,7 +5,7 @@
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.9.1-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-1.9.2-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
 [![Code Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen.svg)](docs/QUALITY_ASSURANCE.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](docs/QUALITY_ASSURANCE.md#code-coverage)
 [![Memory Safe](https://img.shields.io/badge/memory-safe-success.svg)](docs/QUALITY_ASSURANCE.md#memory-safety)

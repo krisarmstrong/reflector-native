@@ -43,3 +43,7 @@ vgcore.*
 *.tmp
 *.temp
 include/version_generated.h
+
+# Tooling defaults
+.env
+.env.*
