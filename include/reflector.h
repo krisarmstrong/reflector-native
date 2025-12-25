@@ -8,9 +8,10 @@
 #ifndef REFLECTOR_H
 #define REFLECTOR_H
 
-#include <stdint.h>
-#include <stdbool.h>
 #include <sys/types.h>
+
+#include <stdbool.h>
+#include <stdint.h>
 
 /* Threading support: GCD on macOS, pthreads elsewhere */
 #ifdef __APPLE__
@@ -24,10 +25,10 @@
 
 /* Compiler hints for branch prediction */
 #ifdef __GNUC__
-#define likely(x)   __builtin_expect(!!(x), 1)
+#define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #else
-#define likely(x)   (x)
+#define likely(x) (x)
 #define unlikely(x) (x)
 #endif
 
@@ -40,10 +41,10 @@
 
 /* Memory prefetch hints */
 #ifdef __GNUC__
-#define PREFETCH_READ(addr)  __builtin_prefetch(addr, 0, 3)
+#define PREFETCH_READ(addr) __builtin_prefetch(addr, 0, 3)
 #define PREFETCH_WRITE(addr) __builtin_prefetch(addr, 1, 3)
 #else
-#define PREFETCH_READ(addr)  ((void)0)
+#define PREFETCH_READ(addr) ((void)0)
 #define PREFETCH_WRITE(addr) ((void)0)
 #endif
 
@@ -67,40 +68,40 @@
 #define MAX_IFNAME_LEN 16
 #define MAX_WORKERS 16
 #define BATCH_SIZE 64
-#define STATS_FLUSH_BATCHES 8  /* Flush stats every 8 batches (~512 packets) */
+#define STATS_FLUSH_BATCHES 8 /* Flush stats every 8 batches (~512 packets) */
 #define FRAME_SIZE 4096
 #define NUM_FRAMES 4096
-#define UMEM_SIZE (NUM_FRAMES * FRAME_SIZE)  /* 16MB */
+#define UMEM_SIZE (NUM_FRAMES * FRAME_SIZE) /* 16MB */
 
 /* ITO packet signatures */
 #define ITO_SIG_PROBEOT "PROBEOT"
-#define ITO_SIG_DATAOT  "DATA:OT"
+#define ITO_SIG_DATAOT "DATA:OT"
 #define ITO_SIG_LATENCY "LATENCY"
 #define ITO_SIG_LEN 7
 
 /* Ethernet frame offsets */
-#define ETH_DST_OFFSET  0
-#define ETH_SRC_OFFSET  6
+#define ETH_DST_OFFSET 0
+#define ETH_SRC_OFFSET 6
 #define ETH_TYPE_OFFSET 12
-#define ETH_HDR_LEN     14
+#define ETH_HDR_LEN 14
 
 /* IPv4 header offsets (relative to Ethernet payload) */
-#define IP_VER_IHL_OFFSET  0
-#define IP_PROTO_OFFSET    9
-#define IP_SRC_OFFSET      12
-#define IP_DST_OFFSET      16
-#define IP_HDR_MIN_LEN     20
+#define IP_VER_IHL_OFFSET 0
+#define IP_PROTO_OFFSET 9
+#define IP_SRC_OFFSET 12
+#define IP_DST_OFFSET 16
+#define IP_HDR_MIN_LEN 20
 
 /* UDP header offsets (relative to IP payload) */
 #define UDP_SRC_PORT_OFFSET 0
 #define UDP_DST_PORT_OFFSET 2
-#define UDP_HDR_LEN         8
+#define UDP_HDR_LEN 8
 
 /* ITO packet signature offset (relative to UDP payload) */
-#define ITO_SIG_OFFSET 5  /* 5-byte header before signature */
+#define ITO_SIG_OFFSET 5 /* 5-byte header before signature */
 
 /* Minimum packet sizes */
-#define MIN_ITO_PACKET_LEN 54  /* Eth(14) + IP(20) + UDP(8) + Sig(7) + padding */
+#define MIN_ITO_PACKET_LEN 54 /* Eth(14) + IP(20) + UDP(8) + Sig(7) + padding */
 
 /* EtherType values */
 #define ETH_P_IP 0x0800
@@ -119,23 +120,23 @@ typedef enum {
 
 /* Error category types */
 typedef enum {
-	ERR_RX_INVALID_MAC = 0,     /* Wrong destination MAC */
-	ERR_RX_INVALID_ETHERTYPE,   /* Not IPv4 */
-	ERR_RX_INVALID_PROTOCOL,    /* Not UDP */
-	ERR_RX_INVALID_SIGNATURE,   /* No ITO signature */
-	ERR_RX_TOO_SHORT,           /* Packet too short */
-	ERR_TX_FAILED,              /* Transmission failed */
-	ERR_RX_NOMEM,               /* Memory allocation failed */
+	ERR_RX_INVALID_MAC = 0,   /* Wrong destination MAC */
+	ERR_RX_INVALID_ETHERTYPE, /* Not IPv4 */
+	ERR_RX_INVALID_PROTOCOL,  /* Not UDP */
+	ERR_RX_INVALID_SIGNATURE, /* No ITO signature */
+	ERR_RX_TOO_SHORT,         /* Packet too short */
+	ERR_TX_FAILED,            /* Transmission failed */
+	ERR_RX_NOMEM,             /* Memory allocation failed */
 	ERR_CATEGORY_COUNT
 } error_category_t;
 
 /* Latency statistics */
 typedef struct {
-	uint64_t count;              /* Number of measurements */
-	uint64_t total_ns;           /* Total latency in nanoseconds */
-	uint64_t min_ns;             /* Minimum latency */
-	uint64_t max_ns;             /* Maximum latency */
-	double avg_ns;               /* Average latency */
+	uint64_t count;    /* Number of measurements */
+	uint64_t total_ns; /* Total latency in nanoseconds */
+	uint64_t min_ns;   /* Minimum latency */
+	uint64_t max_ns;   /* Maximum latency */
+	double avg_ns;     /* Average latency */
 } latency_stats_t;
 
 /* Statistics structure */
@@ -163,59 +164,59 @@ typedef struct {
 	uint64_t err_nomem;
 
 	/* Legacy error counters (for compatibility) */
-	uint64_t rx_invalid;        /* Total validation failures */
-	uint64_t rx_nomem;          /* Memory allocation failures */
-	uint64_t tx_errors;         /* Transmission errors */
-	uint64_t poll_timeout;      /* Poll timeouts */
+	uint64_t rx_invalid;   /* Total validation failures */
+	uint64_t rx_nomem;     /* Memory allocation failures */
+	uint64_t tx_errors;    /* Transmission errors */
+	uint64_t poll_timeout; /* Poll timeouts */
 
 	/* Latency measurements */
 	latency_stats_t latency;
 
 	/* Performance metrics */
-	double pps;                  /* Packets per second (reflected) */
-	double mbps;                 /* Megabits per second (reflected) */
+	double pps;  /* Packets per second (reflected) */
+	double mbps; /* Megabits per second (reflected) */
 
 	/* Timing */
-	uint64_t start_time_ns;      /* Start timestamp */
-	uint64_t last_update_ns;     /* Last update timestamp */
+	uint64_t start_time_ns;  /* Start timestamp */
+	uint64_t last_update_ns; /* Last update timestamp */
 } reflector_stats_t;
 
 /* Statistics output format */
 typedef enum {
-	STATS_FORMAT_TEXT,           /* Human-readable text format */
-	STATS_FORMAT_JSON,           /* Machine-readable JSON format */
-	STATS_FORMAT_CSV             /* CSV format for logging */
+	STATS_FORMAT_TEXT, /* Human-readable text format */
+	STATS_FORMAT_JSON, /* Machine-readable JSON format */
+	STATS_FORMAT_CSV   /* CSV format for logging */
 } stats_format_t;
 
 /* Configuration structure */
 typedef struct {
-	char ifname[MAX_IFNAME_LEN];    /* Interface name */
-	int ifindex;                     /* Interface index */
-	uint8_t mac[6];                  /* Interface MAC address */
-	int num_workers;                 /* Number of worker threads */
-	bool enable_stats;               /* Enable statistics collection */
-	bool promiscuous;                /* Enable promiscuous mode */
-	bool zero_copy;                  /* Enable zero-copy mode (if supported) */
-	int batch_size;                  /* Packet batch size */
-	int frame_size;                  /* Frame size in UMEM */
-	int num_frames;                  /* Number of frames in UMEM */
-	int queue_id;                    /* RX/TX queue ID (-1 for auto) */
-	bool busy_poll;                  /* Enable busy polling */
-	int poll_timeout_ms;             /* Poll timeout in milliseconds */
-	bool measure_latency;            /* Enable latency measurements */
-	stats_format_t stats_format;     /* Statistics output format */
-	int stats_interval_sec;          /* Statistics display interval (seconds) */
-	int cpu_affinity;                /* CPU to pin worker thread (-1 for auto) */
-	bool use_huge_pages;             /* Use huge pages for UMEM (Linux only) */
-	bool software_checksum;          /* Calculate checksums in software (fallback) */
+	char ifname[MAX_IFNAME_LEN]; /* Interface name */
+	int ifindex;                 /* Interface index */
+	uint8_t mac[6];              /* Interface MAC address */
+	int num_workers;             /* Number of worker threads */
+	bool enable_stats;           /* Enable statistics collection */
+	bool promiscuous;            /* Enable promiscuous mode */
+	bool zero_copy;              /* Enable zero-copy mode (if supported) */
+	int batch_size;              /* Packet batch size */
+	int frame_size;              /* Frame size in UMEM */
+	int num_frames;              /* Number of frames in UMEM */
+	int queue_id;                /* RX/TX queue ID (-1 for auto) */
+	bool busy_poll;              /* Enable busy polling */
+	int poll_timeout_ms;         /* Poll timeout in milliseconds */
+	bool measure_latency;        /* Enable latency measurements */
+	stats_format_t stats_format; /* Statistics output format */
+	int stats_interval_sec;      /* Statistics display interval (seconds) */
+	int cpu_affinity;            /* CPU to pin worker thread (-1 for auto) */
+	bool use_huge_pages;         /* Use huge pages for UMEM (Linux only) */
+	bool software_checksum;      /* Calculate checksums in software (fallback) */
 } reflector_config_t;
 
 /* Packet descriptor */
 typedef struct {
-    uint8_t *data;          /* Packet data pointer */
-    uint32_t len;           /* Packet length */
-    uint64_t addr;          /* Buffer address (for zero-copy) */
-    uint64_t timestamp;     /* Receive timestamp (nanoseconds) */
+	uint8_t *data;      /* Packet data pointer */
+	uint32_t len;       /* Packet length */
+	uint64_t addr;      /* Buffer address (for zero-copy) */
+	uint64_t timestamp; /* Receive timestamp (nanoseconds) */
 } packet_t;
 
 /* Platform-specific context (opaque) */
@@ -223,49 +224,49 @@ typedef struct platform_ctx platform_ctx_t;
 
 /* Worker thread context */
 typedef struct {
-    int worker_id;
-    int queue_id;
-    int cpu_id;
-    platform_ctx_t *pctx;
-    reflector_config_t *config;
-    reflector_stats_t stats;
-    volatile bool running;
+	int worker_id;
+	int queue_id;
+	int cpu_id;
+	platform_ctx_t *pctx;
+	reflector_config_t *config;
+	reflector_stats_t stats;
+	volatile bool running;
 } worker_ctx_t;
 
 /* Reflector context */
 typedef struct {
-    reflector_config_t config;
-    platform_ctx_t **platform_contexts;  /* Array of per-worker contexts */
-    worker_ctx_t *workers;
+	reflector_config_t config;
+	platform_ctx_t **platform_contexts; /* Array of per-worker contexts */
+	worker_ctx_t *workers;
 #ifdef __APPLE__
-    dispatch_group_t worker_group;       /* GCD group for worker synchronization */
-    dispatch_queue_t *worker_queues;     /* Per-worker GCD queues */
+	dispatch_group_t worker_group;   /* GCD group for worker synchronization */
+	dispatch_queue_t *worker_queues; /* Per-worker GCD queues */
 #else
-    pthread_t *worker_tids;              /* Thread IDs for joining */
+	pthread_t *worker_tids; /* Thread IDs for joining */
 #endif
-    reflector_stats_t global_stats;
-    volatile bool running;
-    int num_workers;
+	reflector_stats_t global_stats;
+	volatile bool running;
+	int num_workers;
 } reflector_ctx_t;
 
 /* Platform abstraction interface */
 typedef struct {
-    const char *name;
+	const char *name;
 
-    /* Initialize platform-specific context */
-    int (*init)(reflector_ctx_t *rctx, worker_ctx_t *wctx);
+	/* Initialize platform-specific context */
+	int (*init)(reflector_ctx_t *rctx, worker_ctx_t *wctx);
 
-    /* Cleanup platform-specific context */
-    void (*cleanup)(worker_ctx_t *wctx);
+	/* Cleanup platform-specific context */
+	void (*cleanup)(worker_ctx_t *wctx);
 
-    /* Receive a batch of packets */
-    int (*recv_batch)(worker_ctx_t *wctx, packet_t *pkts, int max_pkts);
+	/* Receive a batch of packets */
+	int (*recv_batch)(worker_ctx_t *wctx, packet_t *pkts, int max_pkts);
 
-    /* Send a batch of packets */
-    int (*send_batch)(worker_ctx_t *wctx, packet_t *pkts, int num_pkts);
+	/* Send a batch of packets */
+	int (*send_batch)(worker_ctx_t *wctx, packet_t *pkts, int num_pkts);
 
-    /* Return packets to fill queue (for platforms that need it) */
-    void (*release_batch)(worker_ctx_t *wctx, packet_t *pkts, int num_pkts);
+	/* Return packets to fill queue (for platforms that need it) */
+	void (*release_batch)(worker_ctx_t *wctx, packet_t *pkts, int num_pkts);
 
 } platform_ops_t;
 
@@ -279,9 +280,23 @@ typedef struct {
 
 /**
  * Initialize reflector context for specified network interface
+ *
  * @param rctx Reflector context to initialize (must be zeroed)
  * @param ifname Network interface name (e.g., "eth0", "en0")
- * @return 0 on success, -1 on error
+ * @return 0 on success
+ * @return -1 if interface not found (check errno for ENODEV)
+ * @return -1 if failed to get MAC address (check errno)
+ *
+ * Example:
+ * @code
+ *   reflector_ctx_t rctx = {0};
+ *   if (reflector_init(&rctx, "eth0") < 0) {
+ *       perror("reflector_init");
+ *       return 1;
+ *   }
+ *   // ... use reflector ...
+ *   reflector_cleanup(&rctx);
+ * @endcode
  */
 int reflector_init(reflector_ctx_t *rctx, const char *ifname);
 
@@ -297,8 +312,14 @@ void reflector_cleanup(reflector_ctx_t *rctx);
 
 /**
  * Start packet reflection on all configured worker threads
+ *
  * @param rctx Initialized reflector context
- * @return 0 on success, negative error code on failure
+ * @return 0 on success
+ * @return -ENOMEM if memory allocation failed for workers or contexts
+ * @return -1 if platform initialization failed (socket/BPF setup)
+ * @return -1 if thread creation failed
+ *
+ * @note On Linux with AF_XDP, may fall back to AF_PACKET if XDP init fails
  */
 int reflector_start(reflector_ctx_t *rctx);
 
@@ -478,15 +499,10 @@ void reflector_print_stats_json(const reflector_stats_t *stats);
 void reflector_print_stats_csv(const reflector_stats_t *stats);
 
 /* Platform detection */
-const platform_ops_t* get_platform_ops(void);
+const platform_ops_t *get_platform_ops(void);
 
 /* Logging */
-typedef enum {
-    LOG_DEBUG,
-    LOG_INFO,
-    LOG_WARN,
-    LOG_ERROR
-} log_level_t;
+typedef enum { LOG_DEBUG, LOG_INFO, LOG_WARN, LOG_ERROR } log_level_t;
 
 void reflector_log(log_level_t level, const char *fmt, ...);
 void reflector_set_log_level(log_level_t level);

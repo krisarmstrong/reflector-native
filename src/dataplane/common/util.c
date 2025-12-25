@@ -4,27 +4,32 @@
  * Copyright (c) 2025 Kris Armstrong
  */
 
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+
+#include <errno.h>
+#include <grp.h>
+#include <pwd.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <time.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
+#include <unistd.h>
+
+#include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdarg.h>
 
 /* Safe string copy macro - uses strlcpy on macOS, manual null termination elsewhere */
 #ifdef __APPLE__
 #define SAFE_STRNCPY(dst, src, size) strlcpy(dst, src, size)
 #else
-#define SAFE_STRNCPY(dst, src, size) do { \
-    strncpy(dst, src, (size) - 1); \
-    (dst)[(size) - 1] = '\0'; \
-} while(0)
+#define SAFE_STRNCPY(dst, src, size)                                                               \
+	do {                                                                                           \
+		strncpy(dst, src, (size) - 1);                                                             \
+		(dst)[(size) - 1] = '\0';                                                                  \
+	} while (0)
 #endif
 
 #ifdef __linux__
@@ -34,6 +39,7 @@
 
 #ifdef __APPLE__
 #include <ifaddrs.h>
+
 #include <net/if_dl.h>
 #endif
 
@@ -47,7 +53,7 @@ static log_level_t current_log_level = LOG_INFO;
  */
 void reflector_set_log_level(log_level_t level)
 {
-    current_log_level = level;
+	current_log_level = level;
 }
 
 /*
@@ -55,32 +61,27 @@ void reflector_set_log_level(log_level_t level)
  */
 void reflector_log(log_level_t level, const char *fmt, ...)
 {
-    if (level < current_log_level) {
-        return;
-    }
+	if (level < current_log_level) {
+		return;
+	}
 
-    const char *level_str[] = {
-        [LOG_DEBUG] = "DEBUG",
-        [LOG_INFO]  = "INFO",
-        [LOG_WARN]  = "WARN",
-        [LOG_ERROR] = "ERROR"
-    };
+	const char *level_str[] = {
+	    [LOG_DEBUG] = "DEBUG", [LOG_INFO] = "INFO", [LOG_WARN] = "WARN", [LOG_ERROR] = "ERROR"};
 
-    struct timespec ts;
-    if (clock_gettime(CLOCK_REALTIME, &ts) < 0) {
-        ts.tv_sec = 0;
-        ts.tv_nsec = 0;
-    }
+	struct timespec ts;
+	if (clock_gettime(CLOCK_REALTIME, &ts) < 0) {
+		ts.tv_sec = 0;
+		ts.tv_nsec = 0;
+	}
 
-    fprintf(stderr, "[%ld.%06ld] [%s] ",
-            ts.tv_sec, ts.tv_nsec / 1000, level_str[level]);
+	fprintf(stderr, "[%ld.%06ld] [%s] ", ts.tv_sec, ts.tv_nsec / 1000, level_str[level]);
 
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
 
-    fprintf(stderr, "\n");
+	fprintf(stderr, "\n");
 }
 
 /*
@@ -88,14 +89,14 @@ void reflector_log(log_level_t level, const char *fmt, ...)
  */
 int get_interface_index(const char *ifname)
 {
-    unsigned int ifindex = if_nametoindex(ifname);
-    if (ifindex == 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Interface %s not found: %s", ifname, strerror(saved_errno));
-        errno = saved_errno;
-        return -1;
-    }
-    return (int)ifindex;
+	unsigned int ifindex = if_nametoindex(ifname);
+	if (ifindex == 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Interface %s not found: %s", ifname, strerror(saved_errno));
+		errno = saved_errno;
+		return -1;
+	}
+	return (int)ifindex;
 }
 
 /*
@@ -104,66 +105,66 @@ int get_interface_index(const char *ifname)
 int get_interface_mac(const char *ifname, uint8_t mac[6])
 {
 #ifdef __linux__
-    int fd, ret;
-    struct ifreq ifr;
+	int fd, ret;
+	struct ifreq ifr;
 
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(saved_errno));
-        errno = saved_errno;
-        return -1;
-    }
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(saved_errno));
+		errno = saved_errno;
+		return -1;
+	}
 
-    memset(&ifr, 0, sizeof(ifr));
-    SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
+	memset(&ifr, 0, sizeof(ifr));
+	SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
 
-    ret = ioctl(fd, SIOCGIFHWADDR, &ifr);
-    if (ret < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Failed to get MAC address for %s: %s",
-                     ifname, strerror(saved_errno));
-        close(fd);
-        errno = saved_errno;
-        return -1;
-    }
+	ret = ioctl(fd, SIOCGIFHWADDR, &ifr);
+	if (ret < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Failed to get MAC address for %s: %s", ifname,
+		              strerror(saved_errno));
+		close(fd);
+		errno = saved_errno;
+		return -1;
+	}
 
-    memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
-    close(fd);
+	memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
+	close(fd);
 
 #elif defined(__APPLE__)
-    /* macOS uses getifaddrs() to get MAC address */
-    struct ifaddrs *ifap, *ifaptr;
+	/* macOS uses getifaddrs() to get MAC address */
+	struct ifaddrs *ifap, *ifaptr;
 
-    if (getifaddrs(&ifap) != 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Failed to get interface list: %s", strerror(saved_errno));
-        errno = saved_errno;
-        return -1;
-    }
+	if (getifaddrs(&ifap) != 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Failed to get interface list: %s", strerror(saved_errno));
+		errno = saved_errno;
+		return -1;
+	}
 
-    for (ifaptr = ifap; ifaptr != NULL; ifaptr = ifaptr->ifa_next) {
-        if (strcmp(ifaptr->ifa_name, ifname) == 0 &&
-            ifaptr->ifa_addr->sa_family == AF_LINK) {
-            struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifaptr->ifa_addr;
-            memcpy(mac, LLADDR(sdl), 6);
-            freeifaddrs(ifap);
+	for (ifaptr = ifap; ifaptr != NULL; ifaptr = ifaptr->ifa_next) {
+		if (strcmp(ifaptr->ifa_name, ifname) == 0 && ifaptr->ifa_addr != NULL &&
+		    ifaptr->ifa_addr->sa_family == AF_LINK) {
+			struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifaptr->ifa_addr;
+			memcpy(mac, LLADDR(sdl), 6);
+			freeifaddrs(ifap);
 
-            reflector_log(LOG_DEBUG, "Interface %s MAC: %02x:%02x:%02x:%02x:%02x:%02x",
-                         ifname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-            return 0;
-        }
-    }
+			reflector_log(LOG_DEBUG, "Interface %s MAC: %02x:%02x:%02x:%02x:%02x:%02x", ifname,
+			              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+			return 0;
+		}
+	}
 
-    freeifaddrs(ifap);
-    reflector_log(LOG_ERROR, "Failed to find MAC address for %s", ifname);
-    return -1;
+	freeifaddrs(ifap);
+	reflector_log(LOG_ERROR, "Failed to find MAC address for %s", ifname);
+	return -1;
 #endif
 
-    reflector_log(LOG_DEBUG, "Interface %s MAC: %02x:%02x:%02x:%02x:%02x:%02x",
-                 ifname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	reflector_log(LOG_DEBUG, "Interface %s MAC: %02x:%02x:%02x:%02x:%02x:%02x", ifname, mac[0],
+	              mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    return 0;
+	return 0;
 }
 
 /*
@@ -173,47 +174,47 @@ int get_interface_mac(const char *ifname, uint8_t mac[6])
 int get_num_rx_queues(const char *ifname)
 {
 #ifdef __linux__
-    int fd, ret;
-    struct ifreq ifr;
-    struct ethtool_channels channels;
+	int fd, ret;
+	struct ifreq ifr;
+	struct ethtool_channels channels;
 
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        reflector_log(LOG_WARN, "Failed to create socket for queue query, assuming 1 queue");
-        return 1;
-    }
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		reflector_log(LOG_WARN, "Failed to create socket for queue query, assuming 1 queue");
+		return 1;
+	}
 
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
 
-    memset(&channels, 0, sizeof(channels));
-    channels.cmd = ETHTOOL_GCHANNELS;
-    ifr.ifr_data = (char *)&channels;
+	memset(&channels, 0, sizeof(channels));
+	channels.cmd = ETHTOOL_GCHANNELS;
+	ifr.ifr_data = (char *)&channels;
 
-    ret = ioctl(fd, SIOCETHTOOL, &ifr);
-    close(fd);
+	ret = ioctl(fd, SIOCETHTOOL, &ifr);
+	close(fd);
 
-    if (ret < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_WARN, "Failed to query channels for %s, assuming 1 queue: %s",
-                     ifname, strerror(saved_errno));
-        errno = saved_errno;
-        return 1;
-    }
+	if (ret < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_WARN, "Failed to query channels for %s, assuming 1 queue: %s", ifname,
+		              strerror(saved_errno));
+		errno = saved_errno;
+		return 1;
+	}
 
-    /* Use combined channels if available, otherwise RX channels */
-    int num_queues = channels.combined_count ? channels.combined_count : channels.rx_count;
+	/* Use combined channels if available, otherwise RX channels */
+	int num_queues = channels.combined_count ? channels.combined_count : channels.rx_count;
 
-    if (num_queues == 0) {
-        num_queues = 1;
-    }
+	if (num_queues == 0) {
+		num_queues = 1;
+	}
 
-    reflector_log(LOG_DEBUG, "Interface %s has %d RX queues", ifname, num_queues);
-    return num_queues;
+	reflector_log(LOG_DEBUG, "Interface %s has %d RX queues", ifname, num_queues);
+	return num_queues;
 #else
-    /* macOS doesn't expose queue information */
-    (void)ifname;
-    return 1;
+	/* macOS doesn't expose queue information */
+	(void)ifname;
+	return 1;
 #endif
 }
 
@@ -227,17 +228,17 @@ int get_num_rx_queues(const char *ifname)
 int get_queue_cpu_affinity(const char *ifname, int queue_id)
 {
 #ifdef __linux__
-    /*
-     * Use simple round-robin CPU assignment for queue affinity.
-     * For production use with IRQ affinity tuning, parse /proc/irq
-     * or use ethtool --show-rxfh-indir to get actual queue-to-CPU mapping.
-     */
-    (void)ifname;
-    return queue_id % sysconf(_SC_NPROCESSORS_ONLN);
+	/*
+	 * Use simple round-robin CPU assignment for queue affinity.
+	 * For production use with IRQ affinity tuning, parse /proc/irq
+	 * or use ethtool --show-rxfh-indir to get actual queue-to-CPU mapping.
+	 */
+	(void)ifname;
+	return queue_id % sysconf(_SC_NPROCESSORS_ONLN);
 #else
-    (void)ifname;
-    (void)queue_id;
-    return -1;
+	(void)ifname;
+	(void)queue_id;
+	return -1;
 #endif
 }
 
@@ -246,11 +247,11 @@ int get_queue_cpu_affinity(const char *ifname, int queue_id)
  */
 uint64_t get_timestamp_ns(void)
 {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
-        return 0;  /* Fallback on error */
-    }
-    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+	struct timespec ts;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
+		return 0; /* Fallback on error */
+	}
+	return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
 /*
@@ -258,51 +259,51 @@ uint64_t get_timestamp_ns(void)
  */
 int set_interface_promisc(const char *ifname, bool enable)
 {
-    int fd, ret;
-    struct ifreq ifr;
+	int fd, ret;
+	struct ifreq ifr;
 
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(saved_errno));
-        errno = saved_errno;
-        return -1;
-    }
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Failed to create socket: %s", strerror(saved_errno));
+		errno = saved_errno;
+		return -1;
+	}
 
-    memset(&ifr, 0, sizeof(ifr));
-    SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
+	memset(&ifr, 0, sizeof(ifr));
+	SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
 
-    /* Get current flags */
-    ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
-    if (ret < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Failed to get interface flags: %s", strerror(saved_errno));
-        close(fd);
-        errno = saved_errno;
-        return -1;
-    }
+	/* Get current flags */
+	ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
+	if (ret < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Failed to get interface flags: %s", strerror(saved_errno));
+		close(fd);
+		errno = saved_errno;
+		return -1;
+	}
 
-    /* Modify promiscuous flag */
-    if (enable) {
-        ifr.ifr_flags |= IFF_PROMISC;
-    } else {
-        ifr.ifr_flags &= ~IFF_PROMISC;
-    }
+	/* Modify promiscuous flag */
+	if (enable) {
+		ifr.ifr_flags |= IFF_PROMISC;
+	} else {
+		ifr.ifr_flags &= ~IFF_PROMISC;
+	}
 
-    /* Set new flags */
-    ret = ioctl(fd, SIOCSIFFLAGS, &ifr);
-    if (ret < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_ERROR, "Failed to set interface flags: %s", strerror(saved_errno));
-        close(fd);
-        errno = saved_errno;
-        return -1;
-    }
+	/* Set new flags */
+	ret = ioctl(fd, SIOCSIFFLAGS, &ifr);
+	if (ret < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_ERROR, "Failed to set interface flags: %s", strerror(saved_errno));
+		close(fd);
+		errno = saved_errno;
+		return -1;
+	}
 
-    close(fd);
-    reflector_log(LOG_DEBUG, "Interface %s promiscuous mode: %s",
-                 ifname, enable ? "enabled" : "disabled");
-    return 0;
+	close(fd);
+	reflector_log(LOG_DEBUG, "Interface %s promiscuous mode: %s", ifname,
+	              enable ? "enabled" : "disabled");
+	return 0;
 }
 
 /*
@@ -310,25 +311,25 @@ int set_interface_promisc(const char *ifname, bool enable)
  */
 bool is_interface_up(const char *ifname)
 {
-    int fd, ret;
-    struct ifreq ifr;
+	int fd, ret;
+	struct ifreq ifr;
 
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        return false;
-    }
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		return false;
+	}
 
-    memset(&ifr, 0, sizeof(ifr));
-    SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
+	memset(&ifr, 0, sizeof(ifr));
+	SAFE_STRNCPY(ifr.ifr_name, ifname, IFNAMSIZ);
 
-    ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
-    close(fd);
+	ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
+	close(fd);
 
-    if (ret < 0) {
-        return false;
-    }
+	if (ret < 0) {
+		return false;
+	}
 
-    return (ifr.ifr_flags & IFF_UP) != 0;
+	return (ifr.ifr_flags & IFF_UP) != 0;
 }
 
 /*
@@ -339,44 +340,64 @@ bool is_interface_up(const char *ifname)
 int drop_privileges(void)
 {
 #ifdef __linux__
-    /* Only drop privileges if running as root */
-    if (getuid() != 0 && geteuid() != 0) {
-        reflector_log(LOG_DEBUG, "Not running as root, no privileges to drop");
-        return 0;
-    }
+	/* Only drop privileges if running as root */
+	if (getuid() != 0 && geteuid() != 0) {
+		reflector_log(LOG_DEBUG, "Not running as root, no privileges to drop");
+		return 0;
+	}
 
-    /* Try to drop to 'nobody' user (UID 65534 on most systems) */
-    uid_t nobody_uid = 65534;
-    gid_t nobody_gid = 65534;
+	/* Look up 'nobody' user dynamically using getpwnam() */
+	uid_t nobody_uid;
+	gid_t nobody_gid;
+	struct passwd *pw = getpwnam("nobody");
 
-    /* Drop supplementary groups */
-    if (setgroups(0, NULL) < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_WARN, "Failed to drop supplementary groups: %s", strerror(saved_errno));
-        /* Continue - not fatal */
-    }
+	if (pw != NULL) {
+		nobody_uid = pw->pw_uid;
+		nobody_gid = pw->pw_gid;
+	} else {
+		/* Fallback to standard 'nobody' UID/GID if getpwnam fails */
+		reflector_log(LOG_WARN, "User 'nobody' not found, trying 'nfsnobody'");
+		pw = getpwnam("nfsnobody");
+		if (pw != NULL) {
+			nobody_uid = pw->pw_uid;
+			nobody_gid = pw->pw_gid;
+		} else {
+			/* Last resort: use common default values */
+			reflector_log(LOG_WARN, "No unprivileged user found, using UID/GID 65534");
+			nobody_uid = 65534;
+			nobody_gid = 65534;
+		}
+	}
 
-    /* Drop group privileges */
-    if (setgid(nobody_gid) < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_WARN, "Failed to drop group privileges: %s", strerror(saved_errno));
-        errno = saved_errno;
-        return -1;
-    }
+	/* Drop supplementary groups */
+	if (setgroups(0, NULL) < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_WARN, "Failed to drop supplementary groups: %s", strerror(saved_errno));
+		/* Continue - not fatal */
+	}
 
-    /* Drop user privileges */
-    if (setuid(nobody_uid) < 0) {
-        int saved_errno = errno;
-        reflector_log(LOG_WARN, "Failed to drop user privileges: %s", strerror(saved_errno));
-        errno = saved_errno;
-        return -1;
-    }
+	/* Drop group privileges */
+	if (setgid(nobody_gid) < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_WARN, "Failed to drop group privileges: %s", strerror(saved_errno));
+		errno = saved_errno;
+		return -1;
+	}
 
-    reflector_log(LOG_INFO, "Dropped privileges to nobody (uid=%d, gid=%d)", nobody_uid, nobody_gid);
-    return 0;
+	/* Drop user privileges */
+	if (setuid(nobody_uid) < 0) {
+		int saved_errno = errno;
+		reflector_log(LOG_WARN, "Failed to drop user privileges: %s", strerror(saved_errno));
+		errno = saved_errno;
+		return -1;
+	}
+
+	reflector_log(LOG_INFO, "Dropped privileges to nobody (uid=%d, gid=%d)", nobody_uid,
+	              nobody_gid);
+	return 0;
 #else
-    /* macOS BPF requires root or /dev/bpf group membership - don't drop */
-    reflector_log(LOG_DEBUG, "Privilege dropping not implemented on macOS");
-    return 0;
+	/* macOS BPF requires root or /dev/bpf group membership - don't drop */
+	reflector_log(LOG_DEBUG, "Privilege dropping not implemented on macOS");
+	return 0;
 #endif
 }

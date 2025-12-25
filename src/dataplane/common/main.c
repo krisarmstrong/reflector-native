@@ -2,25 +2,26 @@
  * main.c - Simple CLI for testing reflector dataplane
  */
 
+#include "reflector.h"
+
+#include <inttypes.h>
+#include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <unistd.h>
 #include <time.h>
-#include <inttypes.h>
-#include <limits.h>
-#include "reflector.h"
+#include <unistd.h>
 
 static volatile bool g_running = true;
 static reflector_ctx_t g_rctx;
 static stats_format_t g_stats_format = STATS_FORMAT_TEXT;
-static int g_stats_interval = 10;  /* Default 10 seconds */
+static int g_stats_interval = 10; /* Default 10 seconds */
 
 void signal_handler(int sig)
 {
-    (void)sig;
-    g_running = false;
+	(void)sig;
+	g_running = false;
 }
 
 void print_stats_text(const reflector_stats_t *stats, double elapsed)
@@ -31,26 +32,19 @@ void print_stats_text(const reflector_stats_t *stats, double elapsed)
 	printf("\r[%.1fs] RX: %" PRIu64 " pkts (%" PRIu64 " bytes) | "
 	       "Reflected: %" PRIu64 " pkts | "
 	       "%.0f pps, %.2f Mbps",
-	       elapsed,
-	       stats->packets_received,
-	       stats->bytes_received,
-	       stats->packets_reflected,
-	       pps, mbps);
+	       elapsed, stats->packets_received, stats->bytes_received, stats->packets_reflected, pps,
+	       mbps);
 
 	/* Show signature breakdown if any packets */
 	if (stats->packets_reflected > 0) {
-		printf(" | PROBEOT:%" PRIu64 " DATA:%" PRIu64 " LAT:%" PRIu64,
-		       stats->sig_probeot_count,
-		       stats->sig_dataot_count,
-		       stats->sig_latency_count);
+		printf(" | PROBEOT:%" PRIu64 " DATA:%" PRIu64 " LAT:%" PRIu64, stats->sig_probeot_count,
+		       stats->sig_dataot_count, stats->sig_latency_count);
 	}
 
 	/* Show latency if measured */
 	if (stats->latency.count > 0) {
-		printf(" | Latency: %.1f/%.1f/%.1f us (min/avg/max)",
-		       stats->latency.min_ns / 1000.0,
-		       stats->latency.avg_ns / 1000.0,
-		       stats->latency.max_ns / 1000.0);
+		printf(" | Latency: %.1f/%.1f/%.1f us (min/avg/max)", stats->latency.min_ns / 1000.0,
+		       stats->latency.avg_ns / 1000.0, stats->latency.max_ns / 1000.0);
 	}
 
 	printf("   ");
@@ -128,8 +122,8 @@ int main(int argc, char **argv)
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
 
-	printf("Network Reflector v%d.%d.%d\n",
-	       REFLECTOR_VERSION_MAJOR, REFLECTOR_VERSION_MINOR, REFLECTOR_VERSION_PATCH);
+	printf("Network Reflector v%d.%d.%d\n", REFLECTOR_VERSION_MAJOR, REFLECTOR_VERSION_MINOR,
+	       REFLECTOR_VERSION_PATCH);
 	printf("Starting on interface: %s\n", ifname);
 
 	if (reflector_init(&g_rctx, ifname) < 0) {
@@ -164,10 +158,9 @@ int main(int argc, char **argv)
 		sleep(1);
 
 		clock_gettime(CLOCK_MONOTONIC, &now);
-		double elapsed = (now.tv_sec - start.tv_sec) +
-		                (now.tv_nsec - start.tv_nsec) / 1e9;
-		double since_last = (now.tv_sec - last_stats.tv_sec) +
-		                    (now.tv_nsec - last_stats.tv_nsec) / 1e9;
+		double elapsed = (now.tv_sec - start.tv_sec) + (now.tv_nsec - start.tv_nsec) / 1e9;
+		double since_last =
+		    (now.tv_sec - last_stats.tv_sec) + (now.tv_nsec - last_stats.tv_nsec) / 1e9;
 
 		/* Print stats at interval */
 		if (since_last >= g_stats_interval) {

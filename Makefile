@@ -2,6 +2,19 @@
 
 CC := gcc
 CLANG := clang
+
+# ===================================
+# Compiler Version Check
+# ===================================
+# Check GCC version (need >= 4.9 for -march=native -flto)
+GCC_VERSION := $(shell $(CC) -dumpversion 2>/dev/null | cut -d. -f1)
+GCC_MIN_VERSION := 4
+
+ifeq ($(shell test $(GCC_VERSION) -lt $(GCC_MIN_VERSION) 2>/dev/null && echo 1),1)
+  $(warning ⚠️  GCC version $(GCC_VERSION) detected. Recommend GCC >= 4.9 for optimal performance.)
+  $(warning    Some optimizations (-march=native, -flto) may not be available.)
+endif
+
 # Performance-optimized flags
 CFLAGS := -Wall -Wextra -O3 -march=native -pthread \
           -fno-strict-aliasing \

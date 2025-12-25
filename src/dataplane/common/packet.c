@@ -7,18 +7,20 @@
  * logic for ITO (Integrated Test & Optimization) packets.
  */
 
-#include <stdio.h>
-#include <string.h>
+#include "reflector.h"
+
 #include <inttypes.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <string.h>
+
 #include <arpa/inet.h>
-#include "reflector.h"
 
 /* SIMD support for x86_64 architectures */
 #if defined(__x86_64__) || defined(_M_X64)
-#include <emmintrin.h>  /* SSE2 */
-#include <pmmintrin.h>  /* SSE3 */
 #include <cpuid.h>
+#include <emmintrin.h> /* SSE2 */
+#include <pmmintrin.h> /* SSE3 */
 
 /* CPU feature detection flags */
 static int cpu_has_sse2 = 0;
@@ -90,9 +92,10 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	/* Check destination MAC matches our interface - UNLIKELY to match (filters most traffic) */
 	if (unlikely(memcmp(&data[ETH_DST_OFFSET], mac, 6) != 0)) {
 		if (unlikely(debug_count++ < 3)) {
-			DEBUG_LOG("MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want %02x:%02x:%02x:%02x:%02x:%02x",
-			          data[0], data[1], data[2], data[3], data[4], data[5],
-			          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+			DEBUG_LOG("MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want "
+			          "%02x:%02x:%02x:%02x:%02x:%02x",
+			          data[0], data[1], data[2], data[3], data[4], data[5], mac[0], mac[1], mac[2],
+			          mac[3], mac[4], mac[5]);
 		}
 		return false;
 	}
@@ -134,8 +137,8 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	/* Ensure we have enough data for signature - LIKELY to have enough */
 	if (unlikely(len < udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN)) {
 		if (unlikely(debug_count++ < 3)) {
-			DEBUG_LOG("Too short for signature: len=%u, need=%u",
-			          len, udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN);
+			DEBUG_LOG("Too short for signature: len=%u, need=%u", len,
+			          udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN);
 		}
 		return false;
 	}
@@ -198,11 +201,11 @@ static ALWAYS_INLINE void reflect_packet_inplace_simd(uint8_t *data, uint32_t le
 	 * Target:   [src0-5][dst0-5][type0-1][ip0-1]
 	 * Shuffle:  6,7,8,9,10,11, 0,1,2,3,4,5, 12,13,14,15
 	 */
-	__m128i mac_shuffle = _mm_set_epi8(
-		15, 14, 13, 12,  /* Keep last 4 bytes (EtherType + IP start) */
-		5, 4, 3, 2, 1, 0,     /* Original dst MAC -> new src MAC */
-		11, 10, 9, 8, 7, 6    /* Original src MAC -> new dst MAC */
-	);
+	__m128i mac_shuffle =
+	    _mm_set_epi8(15, 14, 13, 12,    /* Keep last 4 bytes (EtherType + IP start) */
+	                 5, 4, 3, 2, 1, 0,  /* Original dst MAC -> new src MAC */
+	                 11, 10, 9, 8, 7, 6 /* Original src MAC -> new dst MAC */
+	    );
 
 	eth_header = _mm_shuffle_epi8(eth_header, mac_shuffle);
 	_mm_storeu_si128((__m128i *)data, eth_header);
@@ -226,10 +229,9 @@ static ALWAYS_INLINE void reflect_packet_inplace_simd(uint8_t *data, uint32_t le
 	 * Bytes [0-3] = src IP, [4-7] = dst IP
 	 * We want to swap these two 32-bit values
 	 */
-	__m128i ip_shuffle = _mm_set_epi8(
-		15, 14, 13, 12, 11, 10, 9, 8,  /* Keep bytes 8-15 unchanged */
-		3, 2, 1, 0,     /* Original src IP -> position of dst */
-		7, 6, 5, 4      /* Original dst IP -> position of src */
+	__m128i ip_shuffle = _mm_set_epi8(15, 14, 13, 12, 11, 10, 9, 8, /* Keep bytes 8-15 unchanged */
+	                                  3, 2, 1, 0, /* Original src IP -> position of dst */
+	                                  7, 6, 5, 4  /* Original dst IP -> position of src */
 	);
 
 	ip_block = _mm_shuffle_epi8(ip_block, ip_shuffle);
@@ -277,9 +279,9 @@ static ALWAYS_INLINE void reflect_packet_inplace_neon(uint8_t *data, uint32_t le
 	 * Indices:  6,7,8,9,10,11, 0,1,2,3,4,5, 12,13,14,15
 	 */
 	const uint8_t shuffle_indices[16] = {
-		6, 7, 8, 9, 10, 11,    /* src MAC -> dst position */
-		0, 1, 2, 3, 4, 5,      /* dst MAC -> src position */
-		12, 13, 14, 15         /* Keep EtherType and padding */
+	    6,  7,  8,  9, 10, 11, /* src MAC -> dst position */
+	    0,  1,  2,  3, 4,  5,  /* dst MAC -> src position */
+	    12, 13, 14, 15         /* Keep EtherType and padding */
 	};
 	uint8x16_t shuffle_mask = vld1q_u8(shuffle_indices);
 
@@ -332,10 +334,10 @@ static ALWAYS_INLINE void reflect_packet_inplace_neon(uint8_t *data, uint32_t le
  * Assumes packet has been validated by is_ito_packet()
  * Optimized with direct integer swaps and prefetching
  */
-__attribute__((unused))
-static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data, uint32_t len)
+__attribute__((unused)) static ALWAYS_INLINE void reflect_packet_inplace_scalar(uint8_t *data,
+                                                                                uint32_t len)
 {
-	(void)len;  /* Length not needed for in-place swapping */
+	(void)len; /* Length not needed for in-place swapping */
 
 	/* Prefetch areas we'll modify */
 	PREFETCH_WRITE(data);
@@ -382,7 +384,7 @@ static uint16_t calculate_ip_checksum(const uint8_t *iph, uint32_t ihl_bytes)
 
 	/* Sum all 16-bit words, skipping checksum field */
 	for (uint32_t i = 0; i < count / 2; i++) {
-		if (i != 5) {  /* Skip checksum field at offset 10 (word 5) */
+		if (i != 5) { /* Skip checksum field at offset 10 (word 5) */
 			sum += ntohs(ptr[i]);
 		}
 	}
@@ -422,7 +424,7 @@ static uint16_t calculate_udp_checksum(const uint8_t *iph, const uint8_t *udph, 
 	/* Sum UDP header + data (skip checksum field at offset 6) */
 	const uint16_t *ptr = (const uint16_t *)udph;
 	for (uint32_t i = 0; i < udp_len / 2; i++) {
-		if (i != 3) {  /* Skip UDP checksum field at offset 6 (word 3) */
+		if (i != 3) { /* Skip UDP checksum field at offset 6 (word 3) */
 			sum += ntohs(ptr[i]);
 		}
 	}
@@ -503,13 +505,13 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
 
 	/* Recalculate checksums if software fallback enabled */
 	if (software_checksum && len >= 42) {  /* Min: 14 ETH + 20 IP + 8 UDP */
-		uint8_t *iph = data + 14;  /* IP header after Ethernet */
-		uint8_t ihl = (iph[0] & 0x0F) * 4;  /* IP header length in bytes */
+		uint8_t *iph = data + 14;          /* IP header after Ethernet */
+		uint8_t ihl = (iph[0] & 0x0F) * 4; /* IP header length in bytes */
 
 		if (ihl >= 20 && len >= 14 + ihl + 8) {
 			/* Recalculate IP checksum */
 			uint16_t *ip_check = (uint16_t *)(iph + 10);
-			*ip_check = 0;  /* Clear before calculation */
+			*ip_check = 0; /* Clear before calculation */
 			*ip_check = calculate_ip_checksum(iph, ihl);
 
 			/* Recalculate UDP checksum */
@@ -518,7 +520,7 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
 
 			if (len >= 14 + ihl + udp_len) {
 				uint16_t *udp_check = (uint16_t *)(udph + 6);
-				*udp_check = 0;  /* Clear before calculation */
+				*udp_check = 0; /* Clear before calculation */
 				*udp_check = calculate_udp_checksum(iph, udph, udp_len);
 			}
 		}
@@ -637,11 +639,11 @@ ALWAYS_INLINE void update_error_stats(reflector_stats_t *stats, error_category_t
 		break;
 	case ERR_TX_FAILED:
 		stats->err_tx_failed++;
-		stats->tx_errors++;  /* Update legacy counter */
+		stats->tx_errors++; /* Update legacy counter */
 		break;
 	case ERR_RX_NOMEM:
 		stats->err_nomem++;
-		stats->rx_nomem++;  /* Update legacy counter */
+		stats->rx_nomem++; /* Update legacy counter */
 		break;
 	default:
 		break;
@@ -704,33 +706,20 @@ void reflector_print_stats_json(const reflector_stats_t *stats)
  */
 void reflector_print_stats_csv(const reflector_stats_t *stats)
 {
-	printf("%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",",
-	       stats->packets_received,
-	       stats->packets_reflected,
-	       stats->packets_dropped,
-	       stats->bytes_received,
+	printf("%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",", stats->packets_received,
+	       stats->packets_reflected, stats->packets_dropped, stats->bytes_received,
 	       stats->bytes_reflected);
 
-	printf("%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",",
-	       stats->sig_probeot_count,
-	       stats->sig_dataot_count,
-	       stats->sig_latency_count,
-	       stats->sig_unknown_count);
+	printf("%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",", stats->sig_probeot_count,
+	       stats->sig_dataot_count, stats->sig_latency_count, stats->sig_unknown_count);
 
 	printf("%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",",
-	       stats->err_invalid_mac,
-	       stats->err_invalid_ethertype,
-	       stats->err_invalid_protocol,
-	       stats->err_invalid_signature,
-	       stats->err_too_short,
-	       stats->err_tx_failed,
+	       stats->err_invalid_mac, stats->err_invalid_ethertype, stats->err_invalid_protocol,
+	       stats->err_invalid_signature, stats->err_too_short, stats->err_tx_failed,
 	       stats->err_nomem);
 
-	printf("%" PRIu64 ",%.2f,%.2f,%.2f,",
-	       stats->latency.count,
-	       stats->latency.min_ns / 1000.0,
-	       stats->latency.max_ns / 1000.0,
-	       stats->latency.avg_ns / 1000.0);
+	printf("%" PRIu64 ",%.2f,%.2f,%.2f,", stats->latency.count, stats->latency.min_ns / 1000.0,
+	       stats->latency.max_ns / 1000.0, stats->latency.avg_ns / 1000.0);
 
 	printf("%.2f,%.2f\n", stats->pps, stats->mbps);
 }
@@ -738,8 +727,7 @@ void reflector_print_stats_csv(const reflector_stats_t *stats)
 /*
  * Print statistics (dispatcher based on format)
  */
-void reflector_print_stats_formatted(const reflector_stats_t *stats,
-				     stats_format_t format)
+void reflector_print_stats_formatted(const reflector_stats_t *stats, stats_format_t format)
 {
 	switch (format) {
 	case STATS_FORMAT_JSON:
