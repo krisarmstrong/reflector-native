@@ -1,0 +1,24 @@
+Source: reflector
+Section: net
+Priority: optional
+Maintainer: Kris Armstrong <kris.armstrong@me.com>
+Build-Depends: debhelper (>= 12), golang-go (>= 1.21), libxdp-dev, libbpf-dev, libelf-dev, zlib1g-dev, nodejs, npm
+Standards-Version: 4.5.1
+Homepage: https://github.com/krisarmstrong/reflector-native
+
+Package: reflector
+Architecture: amd64 arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: libxdp1, libbpf1
+Suggests: dpdk
+Description: High-performance network packet reflector
+ Reflector is a high-performance network packet reflector designed for
+ network testing and ITO (In-band Test and Operations) packet reflection.
+ .
+ Features:
+  - AF_XDP zero-copy packet processing (10-40 Gbps)
+  - Optional DPDK support for 100G+ line-rate
+  - Terminal UI (TUI) dashboard
+  - Embedded web UI
+  - ITO packet filtering (NetAlly/Fluke compatible)
+  - Multiple reflection modes (MAC, MAC+IP, ALL)

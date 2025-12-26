@@ -101,10 +101,27 @@
 #define ITO_SIG_OFFSET 5 /* 5-byte header before signature */
 
 /* Minimum packet sizes */
-#define MIN_ITO_PACKET_LEN 54 /* Eth(14) + IP(20) + UDP(8) + Sig(7) + padding */
+#define MIN_ITO_PACKET_LEN 54      /* Eth(14) + IP(20) + UDP(8) + Sig(7) + padding */
+#define MIN_ITO_PACKET_LEN_IPV6 69 /* Eth(14) + IPv6(40) + UDP(8) + Sig(7) */
+#define MIN_ITO_PACKET_LEN_VLAN 58 /* Eth(14) + VLAN(4) + IP(20) + UDP(8) + Sig(7) + padding */
 
 /* EtherType values */
 #define ETH_P_IP 0x0800
+#define ETH_P_IPV6 0x86DD
+#define ETH_P_8021Q 0x8100  /* 802.1Q VLAN tagged frame */
+#define ETH_P_8021AD 0x88A8 /* 802.1ad QinQ */
+
+/* VLAN header (802.1Q) */
+#define VLAN_HDR_LEN 4      /* TPID (2) + TCI (2) */
+#define VLAN_TPID_OFFSET 0  /* Tag Protocol Identifier */
+#define VLAN_TCI_OFFSET 2   /* Tag Control Information */
+
+/* IPv6 header offsets (40 bytes fixed, unlike IPv4) */
+#define IPV6_HDR_LEN 40
+#define IPV6_NEXT_HDR_OFFSET 6   /* Next header (protocol) */
+#define IPV6_SRC_OFFSET 8        /* Source address (16 bytes) */
+#define IPV6_DST_OFFSET 24       /* Destination address (16 bytes) */
+#define IPV6_ADDR_LEN 16
 
 /* IP Protocol values */
 #define IPPROTO_UDP 17
@@ -239,6 +256,10 @@ typedef struct {
 
 	/* Reflection mode */
 	reflect_mode_t reflect_mode; /* What to swap: MAC, MAC+IP, or ALL */
+
+	/* Protocol support */
+	bool enable_ipv6; /* Enable IPv6 packet reflection (default: true) */
+	bool enable_vlan; /* Enable VLAN-tagged packet handling (default: true) */
 } reflector_config_t;
 
 /* Packet descriptor */
@@ -422,6 +443,47 @@ int get_interface_mac(const char *ifname, uint8_t mac[6]);
 int get_num_rx_queues(const char *ifname);
 
 /**
+ * Detect NIC capabilities and print performance recommendations
+ * Checks vendor/model, speed, and suggests DPDK if beneficial
+ * @param ifname Interface name
+ */
+void print_nic_recommendations(const char *ifname);
+
+/**
+ * Check if DPDK libraries are available on the system
+ * @return true if DPDK is installed, false otherwise
+ */
+bool is_dpdk_available(void);
+
+/**
+ * Get NIC vendor and device IDs from sysfs (Linux only)
+ * @param ifname Interface name
+ * @param vendor_id Output: PCI vendor ID
+ * @param device_id Output: PCI device ID
+ * @return 0 on success, -1 on error
+ */
+int get_nic_vendor(const char *ifname, uint16_t *vendor_id, uint16_t *device_id);
+
+/**
+ * Get NIC link speed in Mbps
+ * @param ifname Interface name
+ * @return Speed in Mbps, or -1 if unable to determine
+ */
+int get_nic_speed(const char *ifname);
+
+/**
+ * Print warning when falling back to AF_PACKET mode
+ * Explains limitations and how to upgrade to AF_XDP/DPDK
+ * @param ifname Interface name
+ */
+void print_af_packet_warning(const char *ifname);
+
+/**
+ * Print list of recommended NICs for high-performance scenarios
+ */
+void print_recommended_nics(void);
+
+/**
  * Get CPU affinity for specific queue (best-effort heuristic)
  * @param ifname Interface name
  * @param queue_id Queue ID to query
@@ -456,6 +518,18 @@ int drop_privileges(void);
  * @return true if valid ITO packet, false otherwise
  */
 bool is_ito_packet(const uint8_t *data, uint32_t len, const reflector_config_t *config);
+
+/**
+ * Extended ITO packet validation with IPv6 and VLAN support
+ * @param data Packet data buffer
+ * @param len Packet length in bytes
+ * @param config Reflector config
+ * @param is_ipv6 Output: true if IPv6 packet
+ * @param is_vlan Output: true if VLAN-tagged
+ * @return true if valid ITO packet
+ */
+bool is_ito_packet_extended(const uint8_t *data, uint32_t len, const reflector_config_t *config,
+                            bool *is_ipv6, bool *is_vlan);
 
 /**
  * Get ITO signature type from validated packet
@@ -494,6 +568,28 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
  */
 void reflect_packet_with_mode(uint8_t *data, uint32_t len, reflect_mode_t mode,
                               bool software_checksum);
+
+/**
+ * Reflect IPv6 packet in-place
+ * Swaps MAC addresses, IPv6 addresses, and UDP ports
+ * @param data Packet data buffer (will be modified)
+ * @param len Packet length in bytes
+ * @param mode Reflection mode (MAC, MAC+IP, or ALL)
+ * @param software_checksum Whether to recalculate checksums
+ */
+void reflect_packet_ipv6(uint8_t *data, uint32_t len, reflect_mode_t mode,
+                         bool software_checksum);
+
+/**
+ * Check if packet has VLAN tag and get inner EtherType
+ * @param data Packet data buffer
+ * @param len Packet length
+ * @param inner_ethertype Output: inner EtherType (IPv4/IPv6)
+ * @param vlan_offset Output: offset where IP header starts (after VLAN)
+ * @return true if VLAN-tagged, false otherwise
+ */
+bool is_vlan_tagged(const uint8_t *data, uint32_t len, uint16_t *inner_ethertype,
+                    uint32_t *vlan_offset);
 
 /* ------------------------------------------------------------------------
  * Statistics Helper Functions

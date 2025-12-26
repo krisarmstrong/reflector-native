@@ -868,3 +868,317 @@ void reflector_print_stats_formatted(const reflector_stats_t *stats, stats_forma
 		break;
 	}
 }
+
+/* ========================================================================
+ * VLAN (802.1Q) Support
+ * ======================================================================== */
+
+/*
+ * Check if packet has VLAN tag (802.1Q)
+ *
+ * VLAN-tagged frames have EtherType 0x8100 at offset 12,
+ * followed by 4-byte VLAN tag, then the real EtherType.
+ *
+ * Frame structure:
+ * [0-5]   Dst MAC
+ * [6-11]  Src MAC
+ * [12-13] TPID (0x8100 for 802.1Q)
+ * [14-15] TCI (PCP, DEI, VID)
+ * [16-17] Inner EtherType (actual protocol)
+ * [18+]   Payload
+ */
+bool is_vlan_tagged(const uint8_t *data, uint32_t len, uint16_t *inner_ethertype,
+                    uint32_t *vlan_offset)
+{
+	/* Need at least Ethernet header + VLAN tag */
+	if (len < ETH_HDR_LEN + VLAN_HDR_LEN) {
+		return false;
+	}
+
+	/* Check for 802.1Q TPID */
+	uint16_t tpid = (data[ETH_TYPE_OFFSET] << 8) | data[ETH_TYPE_OFFSET + 1];
+
+	if (tpid == ETH_P_8021Q || tpid == ETH_P_8021AD) {
+		/* VLAN tagged - get inner EtherType after VLAN header */
+		*inner_ethertype = (data[ETH_HDR_LEN + 2] << 8) | data[ETH_HDR_LEN + 3];
+		*vlan_offset = ETH_HDR_LEN + VLAN_HDR_LEN;
+		return true;
+	}
+
+	return false;
+}
+
+/* ========================================================================
+ * IPv6 Support
+ * ======================================================================== */
+
+/*
+ * Calculate UDP checksum for IPv6
+ * Uses IPv6 pseudo-header + UDP header + data
+ */
+static uint16_t calculate_udp6_checksum(const uint8_t *ip6h, const uint8_t *udph, uint32_t udp_len)
+{
+	uint32_t sum = 0;
+
+	/* IPv6 pseudo-header:
+	 * - Source address (16 bytes)
+	 * - Destination address (16 bytes)
+	 * - UDP length (4 bytes, upper layer packet length)
+	 * - Zeros (3 bytes)
+	 * - Next header (1 byte, = 17 for UDP)
+	 */
+
+	/* Sum source IPv6 address (8 words) */
+	const uint16_t *src = (const uint16_t *)(ip6h + IPV6_SRC_OFFSET);
+	for (int i = 0; i < 8; i++) {
+		sum += ntohs(src[i]);
+	}
+
+	/* Sum destination IPv6 address (8 words) */
+	const uint16_t *dst = (const uint16_t *)(ip6h + IPV6_DST_OFFSET);
+	for (int i = 0; i < 8; i++) {
+		sum += ntohs(dst[i]);
+	}
+
+	/* UDP length (as 32-bit value split into two 16-bit words) */
+	sum += (udp_len >> 16) & 0xFFFF;
+	sum += udp_len & 0xFFFF;
+
+	/* Next header = UDP (17) */
+	sum += IPPROTO_UDP;
+
+	/* Sum UDP header + data (skip checksum field at offset 6) */
+	const uint16_t *ptr = (const uint16_t *)udph;
+	for (uint32_t i = 0; i < udp_len / 2; i++) {
+		if (i != 3) { /* Skip UDP checksum field */
+			sum += ntohs(ptr[i]);
+		}
+	}
+
+	/* Handle odd byte */
+	if (udp_len & 1) {
+		sum += (uint16_t)(udph[udp_len - 1]) << 8;
+	}
+
+	/* Fold 32-bit sum to 16 bits */
+	while (sum >> 16) {
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+
+	/* UDP checksum 0 means no checksum, use 0xFFFF instead */
+	/* Note: For IPv6, UDP checksum is mandatory (can't be 0) */
+	uint16_t checksum = (uint16_t)~sum;
+	return checksum == 0 ? htons(0xFFFF) : htons(checksum);
+}
+
+/*
+ * Reflect IPv6 packet in-place
+ *
+ * IPv6 header is fixed 40 bytes (no variable options like IPv4 IHL).
+ * Swaps:
+ * - Ethernet MAC addresses
+ * - IPv6 source/destination (16 bytes each)
+ * - UDP ports (if mode == ALL)
+ */
+void reflect_packet_ipv6(uint8_t *data, uint32_t len, reflect_mode_t mode,
+                         bool software_checksum)
+{
+	/* Determine if VLAN tagged */
+	uint16_t inner_etype = 0;
+	uint32_t ip_offset = ETH_HDR_LEN;
+
+	uint16_t outer_etype = (data[ETH_TYPE_OFFSET] << 8) | data[ETH_TYPE_OFFSET + 1];
+	if (outer_etype == ETH_P_8021Q || outer_etype == ETH_P_8021AD) {
+		ip_offset = ETH_HDR_LEN + VLAN_HDR_LEN;
+		inner_etype = (data[ETH_HDR_LEN + 2] << 8) | data[ETH_HDR_LEN + 3];
+		(void)inner_etype; /* Suppress unused warning */
+	}
+
+	/* Verify minimum length for IPv6 */
+	if (len < ip_offset + IPV6_HDR_LEN) {
+		return;
+	}
+
+	/* Prefetch areas we'll modify */
+	PREFETCH_WRITE(data);
+	PREFETCH_WRITE(data + 32);
+
+	/* Swap Ethernet MAC addresses (all modes) */
+	uint64_t temp_mac;
+	memcpy(&temp_mac, &data[ETH_DST_OFFSET], 6);
+	memcpy(&data[ETH_DST_OFFSET], &data[ETH_SRC_OFFSET], 6);
+	memcpy(&data[ETH_SRC_OFFSET], &temp_mac, 6);
+
+	if (mode == REFLECT_MODE_MAC) {
+		return;
+	}
+
+	/* Swap IPv6 addresses (16 bytes each) */
+	uint8_t temp_addr[IPV6_ADDR_LEN];
+	memcpy(temp_addr, &data[ip_offset + IPV6_SRC_OFFSET], IPV6_ADDR_LEN);
+	memcpy(&data[ip_offset + IPV6_SRC_OFFSET], &data[ip_offset + IPV6_DST_OFFSET], IPV6_ADDR_LEN);
+	memcpy(&data[ip_offset + IPV6_DST_OFFSET], temp_addr, IPV6_ADDR_LEN);
+
+	if (mode == REFLECT_MODE_MAC_IP) {
+		return;
+	}
+
+	/* REFLECT_MODE_ALL: Also swap UDP ports */
+	uint32_t udp_offset = ip_offset + IPV6_HDR_LEN;
+
+	if (len < udp_offset + UDP_HDR_LEN) {
+		return;
+	}
+
+	/* Swap UDP ports */
+	uint16_t udp_src_val, udp_dst_val;
+	memcpy(&udp_src_val, &data[udp_offset + UDP_SRC_PORT_OFFSET], 2);
+	memcpy(&udp_dst_val, &data[udp_offset + UDP_DST_PORT_OFFSET], 2);
+	memcpy(&data[udp_offset + UDP_SRC_PORT_OFFSET], &udp_dst_val, 2);
+	memcpy(&data[udp_offset + UDP_DST_PORT_OFFSET], &udp_src_val, 2);
+
+	/* Recalculate UDP checksum if software fallback enabled */
+	/* Note: IPv6 UDP checksum is mandatory */
+	if (software_checksum) {
+		uint8_t *ip6h = data + ip_offset;
+		uint8_t *udph = data + udp_offset;
+		uint16_t udp_len = ntohs(*(uint16_t *)(udph + 4));
+
+		if (len >= udp_offset + udp_len) {
+			uint16_t *udp_check = (uint16_t *)(udph + 6);
+			*udp_check = 0;
+			*udp_check = calculate_udp6_checksum(ip6h, udph, udp_len);
+		}
+	}
+}
+
+/*
+ * Extended ITO packet validation with IPv6 and VLAN support
+ *
+ * Handles:
+ * - IPv4 packets (EtherType 0x0800)
+ * - IPv6 packets (EtherType 0x86DD)
+ * - VLAN-tagged packets (EtherType 0x8100/0x88A8)
+ *
+ * Returns: true if valid ITO packet, false otherwise
+ */
+bool is_ito_packet_extended(const uint8_t *data, uint32_t len, const reflector_config_t *config,
+                            bool *is_ipv6, bool *is_vlan)
+{
+	*is_ipv6 = false;
+	*is_vlan = false;
+
+	/* Prefetch packet data */
+	PREFETCH_READ(data);
+	PREFETCH_READ(data + 64);
+
+	/* Fast rejection: absolute minimum length */
+	if (unlikely(len < MIN_ITO_PACKET_LEN)) {
+		return false;
+	}
+
+	/* Check destination MAC matches our interface */
+	if (unlikely(memcmp(&data[ETH_DST_OFFSET], config->mac, 6) != 0)) {
+		return false;
+	}
+
+	/* Check source MAC OUI if filtering enabled */
+	if (config->filter_oui) {
+		if (unlikely(data[ETH_SRC_OFFSET] != config->oui[0] ||
+		             data[ETH_SRC_OFFSET + 1] != config->oui[1] ||
+		             data[ETH_SRC_OFFSET + 2] != config->oui[2])) {
+			return false;
+		}
+	}
+
+	/* Parse EtherType - check for VLAN first */
+	uint16_t ethertype = (data[ETH_TYPE_OFFSET] << 8) | data[ETH_TYPE_OFFSET + 1];
+	uint32_t ip_offset = ETH_HDR_LEN;
+
+	/* Handle VLAN tag */
+	if (ethertype == ETH_P_8021Q || ethertype == ETH_P_8021AD) {
+		if (!config->enable_vlan) {
+			return false;
+		}
+		if (len < ETH_HDR_LEN + VLAN_HDR_LEN + IP_HDR_MIN_LEN) {
+			return false;
+		}
+		*is_vlan = true;
+		/* Get inner EtherType */
+		ethertype = (data[ETH_HDR_LEN + 2] << 8) | data[ETH_HDR_LEN + 3];
+		ip_offset = ETH_HDR_LEN + VLAN_HDR_LEN;
+	}
+
+	/* Check for IPv4 or IPv6 */
+	uint32_t ip_hdr_len;
+	uint8_t ip_proto;
+
+	if (ethertype == ETH_P_IP) {
+		/* IPv4 validation */
+		if (len < ip_offset + IP_HDR_MIN_LEN) {
+			return false;
+		}
+
+		uint8_t ver_ihl = data[ip_offset + IP_VER_IHL_OFFSET];
+		uint8_t version = ver_ihl >> 4;
+		uint8_t ihl = ver_ihl & 0x0F;
+
+		if (unlikely(version != 4 || ihl < 5)) {
+			return false;
+		}
+
+		ip_hdr_len = ihl * 4;
+		ip_proto = data[ip_offset + IP_PROTO_OFFSET];
+
+	} else if (ethertype == ETH_P_IPV6) {
+		/* IPv6 validation */
+		if (!config->enable_ipv6) {
+			return false;
+		}
+		if (len < ip_offset + IPV6_HDR_LEN) {
+			return false;
+		}
+
+		*is_ipv6 = true;
+		ip_hdr_len = IPV6_HDR_LEN;
+		ip_proto = data[ip_offset + IPV6_NEXT_HDR_OFFSET];
+
+	} else {
+		/* Unknown EtherType */
+		return false;
+	}
+
+	/* Check IP protocol = UDP */
+	if (unlikely(ip_proto != IPPROTO_UDP)) {
+		return false;
+	}
+
+	/* Calculate UDP offset */
+	uint32_t udp_offset = ip_offset + ip_hdr_len;
+	uint32_t udp_payload_offset = udp_offset + UDP_HDR_LEN;
+
+	/* Check length */
+	if (len < udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN) {
+		return false;
+	}
+
+	/* Check destination UDP port if filtering enabled */
+	if (config->ito_port != 0) {
+		uint16_t dst_port =
+		    (data[udp_offset + UDP_DST_PORT_OFFSET] << 8) | data[udp_offset + UDP_DST_PORT_OFFSET + 1];
+		if (unlikely(dst_port != config->ito_port)) {
+			return false;
+		}
+	}
+
+	/* Check for ITO signatures */
+	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
+
+	if (likely(memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
+	           memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
+	           memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0)) {
+		return true;
+	}
+
+	return false;
+}

@@ -1,0 +1,40 @@
+[Unit]
+Description=Reflector - High-performance network packet reflector
+Documentation=https://github.com/krisarmstrong/reflector-native
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Configuration file location
+EnvironmentFile=-/etc/reflector/environment
+
+# Main executable
+ExecStart=/usr/local/bin/reflector -config /etc/reflector/reflector.yaml --no-tui
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/
+ReadWritePaths=/var/log
+
+# Resource limits
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=reflector
+
+[Install]
+WantedBy=multi-user.target

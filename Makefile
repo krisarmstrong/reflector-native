@@ -33,7 +33,11 @@ UNAME_S := $(shell uname -s)
 COMMON_SRCS := src/dataplane/common/packet.c \
                src/dataplane/common/util.c \
                src/dataplane/common/core.c \
+               src/dataplane/common/nic_detect.c \
                src/dataplane/common/main.c
+
+# Add libdl for dlopen (NIC detection)
+LDFLAGS += -ldl
 
 COMMON_OBJS := $(COMMON_SRCS:.c=.o)
 
@@ -370,9 +374,99 @@ help:
 	@echo "  ci-check      - CI pipeline checks"
 	@echo "  check-all     - Run EVERYTHING (full quality suite)"
 	@echo ""
+	@echo "Go Control Plane (v2.0):"
+	@echo "  v2            - Build full v2.0 (Go + React UI)"
+	@echo "  go-deps       - Install Go dependencies"
+	@echo "  go-build      - Build Go binary with embedded UI"
+	@echo "  go-build-minimal - Build Go binary without UI"
+	@echo "  go-clean      - Clean Go build artifacts"
+	@echo "  ui-build      - Build React UI only"
+	@echo ""
+	@echo "Service Installation:"
+	@echo "  install-service-linux - Install systemd service"
+	@echo "  install-service-macos - Install launchd service"
+	@echo ""
 	@echo "Platform: $(UNAME_S)"
 	@echo "Target:   $(TARGET)"
 
+# ===================================
+# Go Control Plane (v2.0)
+# ===================================
+
+# Build React UI
+ui-build:
+	@echo "Building React UI..."
+	@if command -v npm >/dev/null 2>&1; then \
+		cd ui && npm install && npm run build; \
+		echo "✅ React UI built to pkg/web/dist/"; \
+	else \
+		echo "⚠️  npm not found - skipping UI build"; \
+		echo "   Web UI will show fallback page"; \
+	fi
+
+# Build Go control plane (requires C dataplane library)
+go-build: $(TARGET) ui-build
+	@echo "Building Go control plane..."
+	@echo "Creating static library from C code..."
+	ar rcs build/libreflector.a $(ALL_OBJS)
+	@echo "Building Go binary..."
+	CGO_ENABLED=1 go build -o reflector ./cmd/reflector
+	@echo "✅ Go build complete: ./reflector"
+
+# Build Go binary without React UI
+go-build-minimal: $(TARGET)
+	@echo "Building Go control plane (minimal, no UI)..."
+	ar rcs build/libreflector.a $(ALL_OBJS)
+	CGO_ENABLED=1 go build -o reflector ./cmd/reflector
+	@echo "✅ Go build complete: ./reflector"
+
+# Install Go dependencies
+go-deps:
+	@echo "Installing Go dependencies..."
+	go mod tidy
+	go get github.com/rivo/tview
+	go get github.com/gdamore/tcell/v2
+	go get gopkg.in/yaml.v3
+	@echo "✅ Go dependencies installed"
+
+# Clean Go build artifacts
+go-clean:
+	rm -f reflector
+	rm -f build/libreflector.a
+	rm -rf pkg/web/dist
+	rm -rf ui/node_modules
+
+# Install systemd service (Linux)
+install-service-linux:
+	@echo "Installing systemd service..."
+	install -d /etc/reflector
+	install -m 644 reflector.yaml.example /etc/reflector/reflector.yaml
+	install -m 644 scripts/service/reflector.service /etc/systemd/system/
+	systemctl daemon-reload
+	@echo "✅ Service installed. Run: systemctl enable --now reflector"
+
+# Install launchd service (macOS)
+install-service-macos:
+	@echo "Installing launchd service..."
+	install -d /usr/local/etc/reflector
+	install -d /usr/local/var/reflector
+	install -m 644 reflector.yaml.example /usr/local/etc/reflector/reflector.yaml
+	install -m 644 scripts/service/com.reflector.plist /Library/LaunchDaemons/
+	@echo "✅ Service installed. Run: sudo launchctl load /Library/LaunchDaemons/com.reflector.plist"
+
+# Full v2.0 build
+v2: go-deps go-build
+	@echo ""
+	@echo "====================================="
+	@echo "✅ Reflector v2.0 build complete!"
+	@echo "====================================="
+	@echo ""
+	@echo "Run with TUI:     ./reflector eth0"
+	@echo "Run with Web UI:  ./reflector eth0 --web"
+	@echo "Run with config:  ./reflector -config reflector.yaml"
+
 .PHONY: all version test test-utils test-benchmark test-all coverage test-asan test-ubsan \
         test-valgrind format format-check lint cppcheck quality pre-commit ci-check \
-        check-all clean clean-all install uninstall help
+        check-all clean clean-all install uninstall help \
+        ui-build go-build go-build-minimal go-deps go-clean \
+        install-service-linux install-service-macos v2

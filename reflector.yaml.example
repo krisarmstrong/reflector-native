@@ -1,0 +1,37 @@
+# Reflector 2.0 Configuration
+# Copy to reflector.yaml and customize
+
+# Network interface to reflect packets on
+interface: eth0
+
+# Enable verbose logging
+verbose: false
+
+# Web UI settings
+web_ui:
+  enabled: true
+  port: 8080
+
+# Terminal UI settings
+tui:
+  enabled: true
+
+# ITO packet filtering
+filtering:
+  port: 3842           # UDP port (0 = any)
+  filter_oui: true     # Enable source MAC OUI filtering
+  oui: "00:c0:17"      # NetAlly OUI
+
+# Reflection mode
+reflection:
+  mode: all            # mac, mac-ip, or all
+
+# Platform settings
+platform:
+  use_dpdk: false
+  dpdk_args: ""
+
+# Statistics output
+stats:
+  format: text         # text, json, or csv
+  interval: 10         # seconds

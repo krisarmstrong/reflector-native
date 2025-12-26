@@ -1,0 +1,240 @@
+name: Build Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 2.0.0)'
+        required: true
+        default: '2.0.0'
+
+env:
+  MAINTAINER_EMAIL: kris.armstrong@me.com
+
+jobs:
+  build-linux-deb:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libxdp-dev libbpf-dev \
+                                libelf-dev zlib1g-dev dpkg-dev
+
+    - name: Build reflector
+      run: make v2
+
+    - name: Create .deb package
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        VERSION="${INPUT_VERSION:-$REF_NAME}"
+        VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+
+        mkdir -p dist/deb/DEBIAN
+        mkdir -p dist/deb/usr/local/bin
+        mkdir -p dist/deb/etc/reflector
+        mkdir -p dist/deb/lib/systemd/system
+
+        cp reflector dist/deb/usr/local/bin/
+        cp reflector.yaml.example dist/deb/etc/reflector/reflector.yaml
+        cp scripts/service/reflector.service dist/deb/lib/systemd/system/
+
+        cat > dist/deb/DEBIAN/control << EOF
+        Package: reflector
+        Version: ${VERSION}
+        Section: net
+        Priority: optional
+        Architecture: amd64
+        Depends: libc6
+        Recommends: libxdp1, libbpf1
+        Maintainer: Kris Armstrong <${MAINTAINER_EMAIL}>
+        Description: High-performance network packet reflector
+         Reflector is a high-performance network packet reflector designed for
+         network testing and ITO (In-band Test and Operations) packet reflection.
+         Features AF_XDP zero-copy, TUI dashboard, and embedded web UI.
+        EOF
+
+        dpkg-deb --build dist/deb "dist/reflector_${VERSION}_amd64.deb"
+
+    - name: Upload .deb artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: reflector-deb-amd64
+        path: dist/*.deb
+
+  build-linux-rpm:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        dnf install -y make gcc golang nodejs npm \
+                       libxdp-devel libbpf-devel elfutils-libelf-devel \
+                       zlib-devel rpm-build
+
+    - name: Build reflector
+      run: make v2
+
+    - name: Create RPM package
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        VERSION="${INPUT_VERSION:-$REF_NAME}"
+        VERSION="${VERSION#v}"
+
+        mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+        # Create tarball
+        tar czf ~/rpmbuild/SOURCES/reflector-${VERSION}.tar.gz \
+            --transform "s,^,reflector-${VERSION}/," \
+            --exclude='.git' --exclude='dist' .
+
+        # Update spec version
+        sed "s/^Version:.*/Version:        ${VERSION}/" \
+            packaging/rpm/reflector.spec > ~/rpmbuild/SPECS/reflector.spec
+
+        # Build RPM
+        rpmbuild -bb ~/rpmbuild/SPECS/reflector.spec
+
+        mkdir -p dist
+        cp ~/rpmbuild/RPMS/*/*.rpm dist/
+
+    - name: Upload RPM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: reflector-rpm
+        path: dist/*.rpm
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build reflector
+      run: make v2
+
+    - name: Create macOS package
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        VERSION="${INPUT_VERSION:-$REF_NAME}"
+        VERSION="${VERSION#v}"
+
+        mkdir -p dist/pkg/usr/local/bin
+        mkdir -p dist/pkg/usr/local/etc/reflector
+        mkdir -p dist/pkg/Library/LaunchDaemons
+
+        cp reflector dist/pkg/usr/local/bin/
+        cp reflector.yaml.example dist/pkg/usr/local/etc/reflector/reflector.yaml
+        cp scripts/service/com.reflector.plist dist/pkg/Library/LaunchDaemons/
+
+        pkgbuild --root dist/pkg \
+                 --identifier com.reflector \
+                 --version "${VERSION}" \
+                 --install-location / \
+                 "dist/reflector-${VERSION}-macos.pkg"
+
+    - name: Upload macOS package
+      uses: actions/upload-artifact@v4
+      with:
+        name: reflector-macos-pkg
+        path: dist/*.pkg
+
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build reflector
+      run: make v2
+
+    - name: Create macOS ARM64 package
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        VERSION="${INPUT_VERSION:-$REF_NAME}"
+        VERSION="${VERSION#v}"
+
+        mkdir -p dist/pkg/usr/local/bin
+        mkdir -p dist/pkg/usr/local/etc/reflector
+        mkdir -p dist/pkg/Library/LaunchDaemons
+
+        cp reflector dist/pkg/usr/local/bin/
+        cp reflector.yaml.example dist/pkg/usr/local/etc/reflector/reflector.yaml
+        cp scripts/service/com.reflector.plist dist/pkg/Library/LaunchDaemons/
+
+        pkgbuild --root dist/pkg \
+                 --identifier com.reflector \
+                 --version "${VERSION}" \
+                 --install-location / \
+                 "dist/reflector-${VERSION}-macos-arm64.pkg"
+
+    - name: Upload macOS ARM64 package
+      uses: actions/upload-artifact@v4
+      with:
+        name: reflector-macos-arm64-pkg
+        path: dist/*.pkg
+
+  release:
+    needs: [build-linux-deb, build-linux-rpm, build-macos, build-macos-arm64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/**/*.deb
+          artifacts/**/*.rpm
+          artifacts/**/*.pkg
+        draft: false
+        prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
