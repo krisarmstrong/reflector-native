@@ -209,6 +209,10 @@ typedef struct {
 	int cpu_affinity;            /* CPU to pin worker thread (-1 for auto) */
 	bool use_huge_pages;         /* Use huge pages for UMEM (Linux only) */
 	bool software_checksum;      /* Calculate checksums in software (fallback) */
+
+	/* DPDK options (Linux only, requires --dpdk flag) */
+	bool use_dpdk;   /* Use DPDK instead of AF_XDP (100G mode) */
+	char *dpdk_args; /* EAL arguments (e.g., "--lcores=1-4") */
 } reflector_config_t;
 
 /* Packet descriptor */

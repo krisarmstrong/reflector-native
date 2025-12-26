@@ -20,6 +20,9 @@
 #include "platform_config.h"
 
 /* Forward declarations */
+#if HAVE_DPDK
+extern const platform_ops_t *get_dpdk_platform_ops(void);
+#endif
 #if HAVE_AF_XDP
 extern const platform_ops_t *get_xdp_platform_ops(void);
 #endif
@@ -271,10 +274,21 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 
 	/* Determine platform */
 #ifdef __linux__
+#if HAVE_DPDK
+	/* Check if DPDK mode requested */
+	if (rctx->config.use_dpdk) {
+		platform_ops = get_dpdk_platform_ops();
+		reflector_log(LOG_INFO, "Platform: DPDK (100G line-rate mode)");
+		reflector_log(LOG_INFO, "DPDK EAL args: %s",
+		              rctx->config.dpdk_args ? rctx->config.dpdk_args : "(default)");
+	} else
+#endif
 	/* Try AF_XDP first if available, otherwise use AF_PACKET */
 #if HAVE_AF_XDP
-	platform_ops = get_xdp_platform_ops();
-	reflector_log(LOG_INFO, "Platform: AF_XDP (high-performance zero-copy mode)");
+	{
+		platform_ops = get_xdp_platform_ops();
+		reflector_log(LOG_INFO, "Platform: AF_XDP (high-performance zero-copy mode)");
+	}
 #else
 	/* AF_XDP not available - print huge warning */
 	reflector_log(LOG_WARN,

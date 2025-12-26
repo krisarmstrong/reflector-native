@@ -13,6 +13,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "platform_config.h"
+
 static volatile bool g_running = true;
 static reflector_ctx_t g_rctx;
 static stats_format_t g_stats_format = STATS_FORMAT_TEXT;
@@ -60,6 +62,11 @@ void print_usage(const char *prog)
 	fprintf(stderr, "  --csv               Output statistics in CSV format\n");
 	fprintf(stderr, "  --latency           Enable latency measurements\n");
 	fprintf(stderr, "  --stats-interval N  Statistics update interval in seconds (default: 10)\n");
+#if HAVE_DPDK
+	fprintf(stderr, "\nDPDK Options (100G line-rate mode):\n");
+	fprintf(stderr, "  --dpdk              Use DPDK instead of AF_XDP (requires NIC binding)\n");
+	fprintf(stderr, "  --dpdk-args ARGS    Pass arguments to DPDK EAL (e.g., \"--lcores=1-4\")\n");
+#endif
 	fprintf(stderr, "  -h, --help          Show this help message\n");
 }
 
@@ -81,6 +88,10 @@ int main(int argc, char **argv)
 	const char *ifname = argv[1];
 	bool verbose = false;
 	bool measure_latency = false;
+#if HAVE_DPDK
+	bool use_dpdk = false;
+	char *dpdk_args = NULL;
+#endif
 
 	/* Parse options */
 	for (int i = 2; i < argc; i++) {
@@ -108,6 +119,17 @@ int main(int argc, char **argv)
 		} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			print_usage(argv[0]);
 			return 0;
+#if HAVE_DPDK
+		} else if (strcmp(argv[i], "--dpdk") == 0) {
+			use_dpdk = true;
+		} else if (strcmp(argv[i], "--dpdk-args") == 0) {
+			if (i + 1 < argc) {
+				dpdk_args = argv[++i];
+			} else {
+				fprintf(stderr, "Missing value for --dpdk-args\n");
+				return 1;
+			}
+#endif
 		} else {
 			fprintf(stderr, "Unknown option: %s\n", argv[i]);
 			print_usage(argv[0]);
@@ -135,6 +157,10 @@ int main(int argc, char **argv)
 	g_rctx.config.measure_latency = measure_latency;
 	g_rctx.config.stats_format = g_stats_format;
 	g_rctx.config.stats_interval_sec = g_stats_interval;
+#if HAVE_DPDK
+	g_rctx.config.use_dpdk = use_dpdk;
+	g_rctx.config.dpdk_args = dpdk_args;
+#endif
 
 	if (reflector_start(&g_rctx) < 0) {
 		fprintf(stderr, "Failed to start reflector\n");

@@ -56,6 +56,19 @@ ifeq ($(UNAME_S),Linux)
         $(info Install libxdp-dev for AF_XDP support: sudo apt install libxdp-dev)
     endif
 
+    # Check for DPDK support (pkg-config)
+    HAS_DPDK := $(shell pkg-config --exists libdpdk 2>/dev/null && echo 1 || echo 0)
+
+    ifeq ($(HAS_DPDK),1)
+        PLATFORM_SRCS += src/dataplane/linux_dpdk/dpdk_platform.c
+        CFLAGS += $(shell pkg-config --cflags libdpdk) -DHAVE_DPDK=1
+        LDFLAGS += $(shell pkg-config --libs libdpdk)
+        $(info Building with DPDK support (100G line-rate mode available))
+    else
+        $(info DPDK not found - 100G mode not available)
+        $(info Install DPDK for 100G support: sudo apt install dpdk-dev libdpdk-dev)
+    endif
+
     PLATFORM_OBJS := $(PLATFORM_SRCS:.c=.o)
 else ifeq ($(UNAME_S),Darwin)
     TARGET := reflector-macos

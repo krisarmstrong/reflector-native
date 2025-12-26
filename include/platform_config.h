@@ -25,4 +25,25 @@
 #define HAVE_AF_XDP 0
 #endif
 
+/* Check for DPDK support at compile time */
+#ifdef __linux__
+#ifdef __has_include
+#if __has_include(<rte_eal.h>)
+#ifndef HAVE_DPDK
+#define HAVE_DPDK 1
+#endif
+#else
+#ifndef HAVE_DPDK
+#define HAVE_DPDK 0
+#endif
+#endif
+#else
+#ifndef HAVE_DPDK
+#define HAVE_DPDK 0
+#endif
+#endif
+#else
+#define HAVE_DPDK 0
+#endif
+
 #endif /* PLATFORM_CONFIG_H */
