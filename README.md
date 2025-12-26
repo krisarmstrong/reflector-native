@@ -1,11 +1,9 @@
 # Network Reflector - Native Linux/macOS Implementation
 [![Checks](https://github.com/krisarmstrong/reflector-native/actions/workflows/checks.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/checks.yml)
-
-
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.9.2-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-1.11.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
 [![Code Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen.svg)](docs/QUALITY_ASSURANCE.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](docs/QUALITY_ASSURANCE.md#code-coverage)
 [![Memory Safe](https://img.shields.io/badge/memory-safe-success.svg)](docs/QUALITY_ASSURANCE.md#memory-safety)
@@ -18,31 +16,56 @@ High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld networ
 
 This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
 
-**Current Version:** 1.9.1 (January 2025) - Critical Patch (AF_XDP multi-queue, stats, performance fixes)
+**Current Version:** 1.11.0 (December 2025) - ITO filtering, reflection modes, DPDK support
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Data Plane (C)                                     │
-│  - Linux: AF_XDP (zero-copy) + AF_PACKET fallback  │
-│  - macOS: BPF with kqueue event-driven I/O         │
-│  - In-place packet header swapping                  │
-│  - Platform abstraction layer                       │
-│  - Multi-worker support with queue affinity         │
-│  - CLI interface with statistics                    │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           CLI / Configuration                             │
+│  --port 3842  --oui 00:c0:17  --mode all  --dpdk  --latency  --json     │
+└─────────────────────────────────────┬────────────────────────────────────┘
+                                      │
+┌─────────────────────────────────────▼────────────────────────────────────┐
+│                        Packet Validation Layer                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │
+│  │ Dst MAC     │→ │ Src OUI     │→ │ UDP Port    │→ │ ITO Sig     │      │
+│  │ Check       │  │ 00:c0:17    │  │ 3842        │  │ PROBEOT etc │      │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘      │
+└─────────────────────────────────────┬────────────────────────────────────┘
+                                      │
+┌─────────────────────────────────────▼────────────────────────────────────┐
+│                         Reflection Engine                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │ Mode: MAC        │ Mode: MAC+IP      │ Mode: ALL (default)      │     │
+│  │ Swap: ETH only   │ Swap: ETH + IP    │ Swap: ETH + IP + UDP     │     │
+│  │ (Layer 2)        │ (Layer 3)         │ (Layer 4)                │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│  SIMD Optimized: SSE2 (x86_64) / NEON (ARM64)                            │
+└─────────────────────────────────────┬────────────────────────────────────┘
+                                      │
+┌─────────────────────────────────────▼────────────────────────────────────┐
+│                       Platform Abstraction Layer                          │
+├──────────────────┬──────────────────┬──────────────────┬─────────────────┤
+│  DPDK (100G)     │  AF_XDP (40G)    │  AF_PACKET       │  macOS BPF      │
+│  --dpdk flag     │  Default Linux   │  Fallback        │  Default macOS  │
+│  100+ Gbps       │  10-40 Gbps      │  100-500 Mbps    │  10-50 Mbps     │
+│  Poll-mode NIC   │  Zero-copy eBPF  │  Kernel copy     │  /dev/bpf       │
+└──────────────────┴──────────────────┴──────────────────┴─────────────────┘
 ```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed design documentation.
 
 ## Current Features
 
 ### Linux
-- **AF_XDP**: Zero-copy packet I/O with XDP_ZEROCOPY for maximum performance
+- **DPDK (v1.10+)**: 100G+ line-rate with poll-mode drivers (requires `--dpdk` flag)
+- **AF_XDP**: Zero-copy packet I/O with XDP_ZEROCOPY for 10-40 Gbps
 - **AF_PACKET fallback**: Automatic fallback for NICs without XDP support
-- **Multi-queue support**: Queue-per-worker with proper BPF map sharing
+- **Multi-queue support**: Queue-per-worker with RSS flow distribution
+- **Multi-client support**: Handle multiple test tools simultaneously (RSS distributes load)
 - **Platform compatibility**: Works with all NICs (auto-detects best method)
-- **Efficient processing**: No malloc in hot path, optimized receive path
-- **Tested**: Ubuntu 25.10 with various network adapters
+- **Tested**: Ubuntu 24.04+ with Intel, Mellanox, and various NICs
 
 ### macOS
 - **BPF filtering**: Native packet capture and injection via /dev/bpf
@@ -51,27 +74,48 @@ This project provides packet reflection capabilities for ITO (Integrated Test & 
 - **Auto-tuning**: Progressive buffer size detection (1MB → 512KB → 256KB)
 - **Compatibility**: Works with all NICs
 - **Tested**: macOS 14+ with Thunderbolt and USB-C adapters
-- **Performance**: 60-75 Mbps sustained throughput (v1.9.0 optimizations)
+- **Performance**: 60-75 Mbps sustained throughput
+
+### Packet Filtering (v1.11+)
+- **Port filtering**: `--port N` - Filter by UDP port (default: 3842, 0 = any)
+- **OUI filtering**: `--oui XX:XX:XX` - Filter by source MAC vendor (default: 00:c0:17 NetAlly)
+- **Disable OUI check**: `--no-oui-filter` - Accept packets from any vendor
+
+### Reflection Modes (v1.11+)
+- **`--mode mac`**: Swap Ethernet MAC addresses only (Layer 2)
+- **`--mode mac-ip`**: Swap MAC + IP addresses (Layer 3)
+- **`--mode all`**: Swap MAC + IP + UDP ports (Layer 4, default)
 
 ### Common
-- **Zero-copy reflection**: In-place MAC/IP/UDP header swapping
+- **Zero-copy reflection**: In-place header swapping with SIMD (SSE2/NEON)
 - **ITO protocol support**: PROBEOT, DATA:OT, LATENCY signatures
-- **Verbose logging**: Optional detailed packet processing output
+- **Statistics**: Real-time pps/Mbps, latency measurements, JSON/CSV output
 - **Platform abstraction**: Clean separation between platform-specific and common code
 
 ## Performance
 
-### Current v1.9.1
-| Platform | Method | Throughput | Notes |
-|----------|--------|------------|-------|
-| Linux | AF_XDP | Up to 10+ Gbps | Zero-copy, multi-queue, line-rate capable |
-| Linux | AF_PACKET | 100-500 Mbps | Fallback for non-XDP NICs |
-| macOS | BPF | 60-75 Mbps | kqueue I/O, write coalescing (v1.9.0) |
+### v1.11.0 Performance Matrix
+
+| Platform | Method | Throughput | Line-Rate | Multi-Client |
+|----------|--------|------------|-----------|--------------|
+| Linux | DPDK | 100+ Gbps | 100G ✅ | RSS load balance |
+| Linux | AF_XDP | 10-40 Gbps | 40G ~90% | RSS load balance |
+| Linux | AF_PACKET | 100-500 Mbps | No | Single queue |
+| macOS | BPF | 10-75 Mbps | No | Single queue |
+
+### Multi-Client Capacity (40G NIC with AF_XDP)
+
+| Clients | Per-Client Speed | Total Bandwidth | Result |
+|---------|------------------|-----------------|--------|
+| 10 | 1 Gbps | 10 Gbps | ✅ 100% line-rate |
+| 4 | 2.5 Gbps | 10 Gbps | ✅ 100% line-rate |
+| 8 | 5 Gbps | 40 Gbps | ✅ 84-92% efficiency |
+| 4 | 10 Gbps | 40 Gbps | ✅ 84-92% efficiency |
 
 ### Known Limitations
-- **macOS BPF**: Limited to 60-75 Mbps (architectural limitation, Network Extension Framework planned for v2.0.0)
-- **AF_XDP**: Requires XDP-capable NIC and driver (most modern NICs supported)
-- **Multi-queue**: Best performance with queue-per-worker affinity
+- **macOS BPF**: Limited to 10-75 Mbps (kernel architectural limitation)
+- **AF_XDP**: Requires XDP-capable NIC and driver (Intel/Mellanox recommended)
+- **DPDK**: Requires NIC binding to vfio-pci and hugepages configuration
 
 ## Requirements
 
@@ -136,11 +180,53 @@ make test
 # macOS
 sudo ./reflector-macos en0
 
-# Linux
+# Linux (auto-selects AF_XDP if available)
 sudo ./reflector-linux eth0
 
+# Linux with DPDK (100G mode)
+sudo ./reflector-linux --dpdk eth0
+```
+
+### Filtering Options
+```bash
+# Default: Port 3842, NetAlly OUI (00:c0:17)
+sudo ./reflector-linux eth0
+
+# Accept any port (0 = no port filter)
+sudo ./reflector-linux eth0 --port 0
+
+# Accept any vendor (disable OUI check)
+sudo ./reflector-linux eth0 --no-oui-filter
+
+# Custom OUI (e.g., Fluke Networks)
+sudo ./reflector-linux eth0 --oui 00:19:b3
+```
+
+### Reflection Modes
+```bash
+# Full reflection (default) - swap MAC + IP + UDP ports
+sudo ./reflector-linux eth0 --mode all
+
+# Layer 3 - swap MAC + IP addresses only
+sudo ./reflector-linux eth0 --mode mac-ip
+
+# Layer 2 - swap MAC addresses only
+sudo ./reflector-linux eth0 --mode mac
+```
+
+### Statistics Options
+```bash
+# JSON output (for scripting)
+sudo ./reflector-linux eth0 --json
+
+# CSV output (for logging)
+sudo ./reflector-linux eth0 --csv
+
+# Enable latency measurements
+sudo ./reflector-linux eth0 --latency
+
 # Verbose mode (shows packet details)
-sudo ./reflector-macos en0 -v
+sudo ./reflector-linux eth0 -v
 ```
 
 ### Finding Your Interface
@@ -192,38 +278,34 @@ Reflects packets with these signatures at offset 5 in UDP payload:
 ```
 reflector-native/
 ├── src/
-│   └── dataplane/          # C data plane implementations
-│       ├── common/         # Platform-agnostic packet logic
-│       │   ├── packet.c    # ITO validation & reflection
-│       │   ├── util.c      # Interface/MAC utilities
-│       │   ├── core.c      # Worker thread management
-│       │   └── main.c      # CLI entry point
-│       ├── linux_packet/   # Linux AF_PACKET implementation
+│   └── dataplane/           # C data plane implementations
+│       ├── common/          # Platform-agnostic code
+│       │   ├── packet.c     # ITO validation & reflection (SIMD)
+│       │   ├── util.c       # Interface/MAC utilities
+│       │   ├── core.c       # Worker thread management
+│       │   └── main.c       # CLI entry point
+│       ├── linux_xdp/       # Linux AF_XDP (10-40G)
+│       │   └── xdp_platform.c
+│       ├── linux_dpdk/      # Linux DPDK (100G+)
+│       │   └── dpdk_platform.c
+│       ├── linux_packet/    # Linux AF_PACKET (fallback)
 │       │   └── packet_platform.c
-│       └── macos_bpf/      # macOS BPF implementation
+│       └── macos_bpf/       # macOS BPF
 │           └── bpf_platform.c
-├── include/                # Header files
-│   └── reflector.h        # Core definitions & platform API
-├── tests/                  # Unit tests
+├── include/                 # Header files
+│   ├── reflector.h          # Core definitions & API
+│   └── platform_config.h    # Platform detection
+├── tests/                   # Unit tests
 │   └── test_packet_validation.c
-├── docs/                   # Documentation
-│   ├── ARCHITECTURE.md    # Design details
-│   ├── PERFORMANCE.md     # Performance tuning
-│   └── QUICKSTART.md      # Getting started
-├── .github/
-│   ├── workflows/         # CI/CD automation
-│   │   ├── ci.yml        # Build & test
-│   │   ├── security.yml  # Security scanning
-│   │   └── release.yml   # Release automation
-│   └── PULL_REQUEST_TEMPLATE.md
-├── .githooks/             # Git hooks
-│   └── pre-commit        # Pre-commit validation
-├── scripts/               # Utility scripts
-│   └── install-hooks.sh  # Install git hooks
-├── CHANGELOG.md           # Version history
-├── SECURITY.md            # Security policy
-├── CONTRIBUTING.md        # Contribution guidelines
-└── ROADMAP.md             # Future plans
+├── docs/                    # Documentation
+│   ├── ARCHITECTURE.md      # Design & diagrams
+│   ├── PERFORMANCE.md       # Performance tuning
+│   └── QUICKSTART.md        # Getting started
+├── .github/workflows/       # CI/CD automation
+├── CHANGELOG.md             # Version history
+├── SECURITY.md              # Security policy
+├── CONTRIBUTING.md          # Contribution guidelines
+└── ROADMAP.md               # Future plans
 ```
 
 ## Development
