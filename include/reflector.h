@@ -73,11 +73,16 @@
 #define NUM_FRAMES 4096
 #define UMEM_SIZE (NUM_FRAMES * FRAME_SIZE) /* 16MB */
 
-/* ITO packet signatures */
+/* ITO packet signatures (NetAlly/Fluke/NETSCOUT) */
 #define ITO_SIG_PROBEOT "PROBEOT"
 #define ITO_SIG_DATAOT "DATA:OT"
 #define ITO_SIG_LATENCY "LATENCY"
 #define ITO_SIG_LEN 7
+
+/* Custom signatures (RFC2544/Y.1564 tester) */
+#define CUSTOM_SIG_RFC2544 "RFC2544"
+#define CUSTOM_SIG_Y1564 "Y.1564 " /* Padded to 7 bytes */
+#define CUSTOM_SIG_LEN 7
 
 /* Ethernet frame offsets */
 #define ETH_DST_OFFSET 0
@@ -144,14 +149,33 @@ typedef enum {
 	REFLECT_MODE_ALL = 2     /* Swap MAC + IP + UDP ports (default) */
 } reflect_mode_t;
 
-/* ITO packet signature types (for statistics) */
+/* Signature filter mode - which packet types to accept */
 typedef enum {
-	ITO_SIG_TYPE_PROBEOT = 0,
-	ITO_SIG_TYPE_DATAOT = 1,
-	ITO_SIG_TYPE_LATENCY = 2,
-	ITO_SIG_TYPE_UNKNOWN = 3,
-	ITO_SIG_TYPE_COUNT = 4
-} ito_sig_type_t;
+	SIG_FILTER_ALL = 0,     /* Accept all known signatures (default) */
+	SIG_FILTER_ITO = 1,     /* ITO only (PROBEOT, DATA:OT, LATENCY) */
+	SIG_FILTER_RFC2544 = 2, /* RFC2544 only */
+	SIG_FILTER_Y1564 = 3,   /* Y.1564 only */
+	SIG_FILTER_CUSTOM = 4   /* Custom signatures only (RFC2544 + Y.1564) */
+} sig_filter_t;
+
+/* Packet signature types (for statistics) */
+typedef enum {
+	SIG_TYPE_PROBEOT = 0,  /* ITO: PROBEOT */
+	SIG_TYPE_DATAOT = 1,   /* ITO: DATA:OT */
+	SIG_TYPE_LATENCY = 2,  /* ITO: LATENCY */
+	SIG_TYPE_RFC2544 = 3,  /* Custom: RFC2544 */
+	SIG_TYPE_Y1564 = 4,    /* Custom: Y.1564 */
+	SIG_TYPE_UNKNOWN = 5,
+	SIG_TYPE_COUNT = 6
+} sig_type_t;
+
+/* Legacy alias for compatibility */
+typedef sig_type_t ito_sig_type_t;
+#define ITO_SIG_TYPE_PROBEOT SIG_TYPE_PROBEOT
+#define ITO_SIG_TYPE_DATAOT SIG_TYPE_DATAOT
+#define ITO_SIG_TYPE_LATENCY SIG_TYPE_LATENCY
+#define ITO_SIG_TYPE_UNKNOWN SIG_TYPE_UNKNOWN
+#define ITO_SIG_TYPE_COUNT SIG_TYPE_COUNT
 
 /* Error category types */
 typedef enum {
@@ -187,6 +211,8 @@ typedef struct {
 	uint64_t sig_probeot_count;
 	uint64_t sig_dataot_count;
 	uint64_t sig_latency_count;
+	uint64_t sig_rfc2544_count;
+	uint64_t sig_y1564_count;
 	uint64_t sig_unknown_count;
 
 	/* Error counters by category */
@@ -256,6 +282,9 @@ typedef struct {
 
 	/* Reflection mode */
 	reflect_mode_t reflect_mode; /* What to swap: MAC, MAC+IP, or ALL */
+
+	/* Signature filter */
+	sig_filter_t sig_filter; /* Which signatures to accept (default: ALL) */
 
 	/* Protocol support */
 	bool enable_ipv6; /* Enable IPv6 packet reflection (default: true) */

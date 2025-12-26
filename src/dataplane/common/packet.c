@@ -174,7 +174,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
 		return false;
 	}
 
-	/* Check for ITO signatures - LIKELY to match at this point */
+	/* Check for signatures - LIKELY to match at this point */
 	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
 
 	if (unlikely(debug_count++ < 3)) {
@@ -183,15 +183,37 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
 		char sig_str[ITO_SIG_LEN + 1];
 		memcpy(sig_str, sig, ITO_SIG_LEN);
 		sig_str[ITO_SIG_LEN] = '\0';
-		DEBUG_LOG("UDP payload signature: '%s' (checking for PROBEOT/DATA:OT/LATENCY)", sig_str);
+		DEBUG_LOG("UDP payload signature: '%s'", sig_str);
 	}
 
-	/* Optimize signature check with early exit */
-	if (likely(memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
-	           memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
-	           memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0)) {
-		DEBUG_LOG("ITO packet matched! len=%u", len);
-		return true;
+	/* Check signatures based on filter mode */
+	sig_filter_t filter = config->sig_filter;
+
+	/* ITO signatures (NetAlly/Fluke/NETSCOUT) */
+	if (filter == SIG_FILTER_ALL || filter == SIG_FILTER_ITO) {
+		if (memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
+		    memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
+		    memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
+			DEBUG_LOG("ITO packet matched! len=%u", len);
+			return true;
+		}
+	}
+
+	/* Custom signatures (RFC2544/Y.1564 tester) */
+	if (filter == SIG_FILTER_ALL || filter == SIG_FILTER_CUSTOM ||
+	    filter == SIG_FILTER_RFC2544) {
+		if (memcmp(sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0) {
+			DEBUG_LOG("RFC2544 packet matched! len=%u", len);
+			return true;
+		}
+	}
+
+	if (filter == SIG_FILTER_ALL || filter == SIG_FILTER_CUSTOM ||
+	    filter == SIG_FILTER_Y1564) {
+		if (memcmp(sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
+			DEBUG_LOG("Y.1564 packet matched! len=%u", len);
+			return true;
+		}
 	}
 
 	return false;
@@ -674,7 +696,7 @@ void reflect_packet_copy(const uint8_t *src, uint8_t *dst, uint32_t len)
  * Returns the specific ITO signature type for statistics tracking.
  * Assumes packet has been validated with is_ito_packet()
  */
-ito_sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len)
+sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len)
 {
 	/* Calculate UDP payload offset */
 	uint8_t ihl = data[ETH_HDR_LEN + IP_VER_IHL_OFFSET] & 0x0F;
@@ -683,38 +705,52 @@ ito_sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len)
 
 	/* Safety check */
 	if (len < udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN) {
-		return ITO_SIG_TYPE_UNKNOWN;
+		return SIG_TYPE_UNKNOWN;
 	}
 
 	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
 
+	/* ITO signatures (NetAlly/Fluke/NETSCOUT) */
 	if (memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0) {
-		return ITO_SIG_TYPE_PROBEOT;
+		return SIG_TYPE_PROBEOT;
 	} else if (memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0) {
-		return ITO_SIG_TYPE_DATAOT;
+		return SIG_TYPE_DATAOT;
 	} else if (memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
-		return ITO_SIG_TYPE_LATENCY;
+		return SIG_TYPE_LATENCY;
 	}
 
-	return ITO_SIG_TYPE_UNKNOWN;
+	/* Custom signatures (RFC2544/Y.1564 tester) */
+	if (memcmp(sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0) {
+		return SIG_TYPE_RFC2544;
+	} else if (memcmp(sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
+		return SIG_TYPE_Y1564;
+	}
+
+	return SIG_TYPE_UNKNOWN;
 }
 
 /*
  * Update per-signature statistics (inlined for performance)
  */
-ALWAYS_INLINE void update_signature_stats(reflector_stats_t *stats, ito_sig_type_t sig_type)
+ALWAYS_INLINE void update_signature_stats(reflector_stats_t *stats, sig_type_t sig_type)
 {
 	switch (sig_type) {
-	case ITO_SIG_TYPE_PROBEOT:
+	case SIG_TYPE_PROBEOT:
 		stats->sig_probeot_count++;
 		break;
-	case ITO_SIG_TYPE_DATAOT:
+	case SIG_TYPE_DATAOT:
 		stats->sig_dataot_count++;
 		break;
-	case ITO_SIG_TYPE_LATENCY:
+	case SIG_TYPE_LATENCY:
 		stats->sig_latency_count++;
 		break;
-	case ITO_SIG_TYPE_UNKNOWN:
+	case SIG_TYPE_RFC2544:
+		stats->sig_rfc2544_count++;
+		break;
+	case SIG_TYPE_Y1564:
+		stats->sig_y1564_count++;
+		break;
+	case SIG_TYPE_UNKNOWN:
 	default:
 		stats->sig_unknown_count++;
 		break;

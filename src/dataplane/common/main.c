@@ -71,6 +71,13 @@ void print_usage(const char *prog)
 	fprintf(stderr, "                        mac    = Ethernet MAC only\n");
 	fprintf(stderr, "                        mac-ip = MAC + IP addresses\n");
 	fprintf(stderr, "                        all    = MAC + IP + UDP ports\n");
+	fprintf(stderr, "\nSignature Filter:\n");
+	fprintf(stderr, "  --sig FILTER        Which signatures to accept (default: all)\n");
+	fprintf(stderr, "                        all     = All known signatures\n");
+	fprintf(stderr, "                        ito     = ITO only (PROBEOT, DATA:OT, LATENCY)\n");
+	fprintf(stderr, "                        rfc2544 = RFC2544 only\n");
+	fprintf(stderr, "                        y1564   = Y.1564 only\n");
+	fprintf(stderr, "                        custom  = Custom only (RFC2544 + Y.1564)\n");
 #if HAVE_DPDK
 	fprintf(stderr, "\nDPDK Options (100G line-rate mode):\n");
 	fprintf(stderr, "  --dpdk              Use DPDK instead of AF_XDP (requires NIC binding)\n");
@@ -103,6 +110,7 @@ int main(int argc, char **argv)
 	bool filter_oui = true;           /* Filter by NetAlly OUI by default */
 	uint8_t oui[3] = {NETALLY_OUI_BYTE0, NETALLY_OUI_BYTE1, NETALLY_OUI_BYTE2};
 	reflect_mode_t reflect_mode = REFLECT_MODE_ALL;
+	sig_filter_t sig_filter = SIG_FILTER_ALL; /* Accept all signatures by default */
 
 #if HAVE_DPDK
 	bool use_dpdk = false;
@@ -179,6 +187,27 @@ int main(int argc, char **argv)
 				fprintf(stderr, "Missing value for --mode\n");
 				return 1;
 			}
+		} else if (strcmp(argv[i], "--sig") == 0) {
+			if (i + 1 < argc) {
+				i++;
+				if (strcmp(argv[i], "all") == 0) {
+					sig_filter = SIG_FILTER_ALL;
+				} else if (strcmp(argv[i], "ito") == 0) {
+					sig_filter = SIG_FILTER_ITO;
+				} else if (strcmp(argv[i], "rfc2544") == 0) {
+					sig_filter = SIG_FILTER_RFC2544;
+				} else if (strcmp(argv[i], "y1564") == 0) {
+					sig_filter = SIG_FILTER_Y1564;
+				} else if (strcmp(argv[i], "custom") == 0) {
+					sig_filter = SIG_FILTER_CUSTOM;
+				} else {
+					fprintf(stderr, "Invalid signature filter: %s (use all, ito, rfc2544, y1564, or custom)\n", argv[i]);
+					return 1;
+				}
+			} else {
+				fprintf(stderr, "Missing value for --sig\n");
+				return 1;
+			}
 		} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			print_usage(argv[0]);
 			return 0;
@@ -226,6 +255,7 @@ int main(int argc, char **argv)
 	g_rctx.config.filter_oui = filter_oui;
 	memcpy(g_rctx.config.oui, oui, 3);
 	g_rctx.config.reflect_mode = reflect_mode;
+	g_rctx.config.sig_filter = sig_filter;
 
 #if HAVE_DPDK
 	g_rctx.config.use_dpdk = use_dpdk;
@@ -296,9 +326,13 @@ int main(int argc, char **argv)
 		printf("  Bytes received:    %" PRIu64 "\n", final_stats.bytes_received);
 		printf("  Bytes reflected:   %" PRIu64 "\n", final_stats.bytes_reflected);
 		printf("\nSignature Breakdown:\n");
-		printf("  PROBEOT packets:   %" PRIu64 "\n", final_stats.sig_probeot_count);
-		printf("  DATA:OT packets:   %" PRIu64 "\n", final_stats.sig_dataot_count);
-		printf("  LATENCY packets:   %" PRIu64 "\n", final_stats.sig_latency_count);
+		printf("  ITO Signatures:\n");
+		printf("    PROBEOT packets:   %" PRIu64 "\n", final_stats.sig_probeot_count);
+		printf("    DATA:OT packets:   %" PRIu64 "\n", final_stats.sig_dataot_count);
+		printf("    LATENCY packets:   %" PRIu64 "\n", final_stats.sig_latency_count);
+		printf("  Custom Signatures:\n");
+		printf("    RFC2544 packets:   %" PRIu64 "\n", final_stats.sig_rfc2544_count);
+		printf("    Y.1564 packets:    %" PRIu64 "\n", final_stats.sig_y1564_count);
 		if (measure_latency && final_stats.latency.count > 0) {
 			printf("\nLatency Statistics:\n");
 			printf("  Measurements:      %" PRIu64 "\n", final_stats.latency.count);
