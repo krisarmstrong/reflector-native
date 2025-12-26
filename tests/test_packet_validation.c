@@ -12,6 +12,18 @@
 int tests_passed = 0;
 int tests_failed = 0;
 
+/* Helper to create test config with specified MAC */
+static reflector_config_t make_test_config(const uint8_t mac[6])
+{
+	reflector_config_t config = {0};
+	memcpy(config.mac, mac, 6);
+	/* Disable OUI and port filtering for backward compatibility with existing tests */
+	config.filter_oui = false;
+	config.ito_port = 0; /* 0 = any port */
+	config.reflect_mode = REFLECT_MODE_ALL;
+	return config;
+}
+
 #define TEST(name) void test_##name()
 #define RUN_TEST(name)                                                                             \
 	do {                                                                                           \
@@ -100,7 +112,8 @@ TEST(ito_packet_valid_probeot)
 	    'T', /* PROBEOT */
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == true);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == true);
 }
 
 TEST(ito_packet_too_short)
@@ -108,7 +121,8 @@ TEST(ito_packet_too_short)
 	uint8_t mac[6] = {0x00, 0x01, 0x55, 0x17, 0x1e, 0x1b};
 	uint8_t packet[50] = {0}; /* Too short */
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 TEST(ito_packet_wrong_mac)
@@ -122,7 +136,8 @@ TEST(ito_packet_wrong_mac)
 	    0x09, 0x10, 0xea, 0x1d, 0x00, 'P',  'R',  'O',  'B',  'E',  'O',  'T',
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 TEST(ito_packet_not_udp)
@@ -136,7 +151,8 @@ TEST(ito_packet_not_udp)
 	    0x00, 0x00, 0x09, 0x10, 0xea, 0x1d, 0x00, 'P',  'R',  'O',  'B',  'E',  'O',  'T',
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 TEST(ito_packet_wrong_signature)
@@ -149,7 +165,8 @@ TEST(ito_packet_wrong_signature)
 	    0x09, 0x10, 0xea, 0x1d, 0x00, 'I',  'N',  'V',  'A',  'L',  'I',  'D', /* Wrong signature */
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 /* Test IPv6 packet rejection (must be rejected - ITO only supports IPv4) */
@@ -186,7 +203,8 @@ TEST(ito_packet_ipv6_rejected)
 	};
 
 	/* IPv6 packets must be rejected since ITO only works with IPv4 */
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 /* Test broadcast MAC rejection */
@@ -258,7 +276,8 @@ TEST(ito_packet_broadcast_mac_rejected)
 	};
 
 	/* Broadcast MAC must be rejected - we only accept unicast to our MAC */
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 /* Test multicast MAC rejection (IPv4 multicast range 01:00:5E:xx:xx:xx) */
@@ -330,7 +349,8 @@ TEST(ito_packet_multicast_mac_rejected)
 	};
 
 	/* Multicast MAC must be rejected - we only accept unicast to our MAC */
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 /* Test jumbo frame handling (9000+ bytes) */
@@ -394,7 +414,8 @@ TEST(ito_packet_jumbo_frame_valid)
 	memcpy(&packet[47], "PROBEOT", 7); /* signature */
 
 	/* Jumbo frame with valid ITO signature should be accepted */
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == true);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == true);
 }
 
 /* Test DATA:OT signature */
@@ -465,7 +486,8 @@ TEST(ito_packet_valid_dataot)
 	    'T',
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == true);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == true);
 }
 
 /* Test LATENCY signature */
@@ -536,7 +558,8 @@ TEST(ito_packet_valid_latency)
 	    'Y',
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == true);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == true);
 }
 
 /* Test IP header length validation (IHL < 5 is invalid) */
@@ -607,7 +630,8 @@ TEST(ito_packet_invalid_ihl)
 	    'T',
 	};
 
-	ASSERT(is_ito_packet(packet, sizeof(packet), mac) == false);
+	reflector_config_t config = make_test_config(mac);
+	ASSERT(is_ito_packet(packet, sizeof(packet), &config) == false);
 }
 
 /* Test packet reflection */

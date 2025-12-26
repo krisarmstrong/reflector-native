@@ -273,9 +273,17 @@ int dpdk_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 		/* Copy MAC to config */
 		memcpy(rctx->config.mac, dpdk_shared.mac_addr.addr_bytes, 6);
 	} else {
-		/* Wait for worker 0 to finish initialization */
+		/* Wait for worker 0 to finish initialization (30 second timeout) */
+		const int timeout_us = 30 * 1000000; /* 30 seconds */
+		int waited_us = 0;
 		while (!dpdk_shared.initialized) {
 			rte_delay_us(100);
+			waited_us += 100;
+			if (waited_us > timeout_us) {
+				reflector_log(LOG_ERROR, "Timeout waiting for DPDK initialization");
+				free(pctx);
+				return -1;
+			}
 		}
 		pctx->is_primary = false;
 	}

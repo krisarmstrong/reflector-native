@@ -150,7 +150,7 @@ static void *worker_thread(void *arg)
 				PREFETCH_READ(pkts_rx[i + 1].data);
 			}
 
-			if (is_ito_packet(pkts_rx[i].data, pkts_rx[i].len, wctx->config->mac)) {
+			if (is_ito_packet(pkts_rx[i].data, pkts_rx[i].len, wctx->config)) {
 				/* Accumulate signature stats in local batch */
 				ito_sig_type_t sig_type = get_ito_signature_type(pkts_rx[i].data, pkts_rx[i].len);
 				switch (sig_type) {
@@ -168,9 +168,10 @@ static void *worker_thread(void *arg)
 					break;
 				}
 
-				/* Reflect in-place with optional software checksums */
-				reflect_packet_with_checksum(pkts_rx[i].data, pkts_rx[i].len,
-				                             wctx->config->software_checksum);
+				/* Reflect in-place with configurable mode and optional software checksums */
+				reflect_packet_with_mode(pkts_rx[i].data, pkts_rx[i].len,
+				                         wctx->config->reflect_mode,
+				                         wctx->config->software_checksum);
 
 				/* Accumulate latency stats in local batch if enabled */
 				if (wctx->config->measure_latency) {
@@ -261,6 +262,14 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 	rctx->config.cpu_affinity = -1;         /* Auto: use IRQ affinity */
 	rctx->config.use_huge_pages = false;    /* Disabled by default */
 	rctx->config.software_checksum = false; /* Use NIC offload by default */
+
+	/* ITO packet filtering defaults */
+	rctx->config.ito_port = ITO_UDP_PORT; /* Default: port 3842 */
+	rctx->config.filter_oui = true;       /* Filter by OUI by default */
+	rctx->config.oui[0] = NETALLY_OUI_BYTE0;
+	rctx->config.oui[1] = NETALLY_OUI_BYTE1;
+	rctx->config.oui[2] = NETALLY_OUI_BYTE2;
+	rctx->config.reflect_mode = REFLECT_MODE_ALL; /* Full reflection by default */
 
 	/* Get interface info */
 	rctx->config.ifindex = get_interface_index(ifname);

@@ -56,18 +56,27 @@ void print_stats_text(const reflector_stats_t *stats, double elapsed)
 void print_usage(const char *prog)
 {
 	fprintf(stderr, "Usage: %s <interface> [options]\n", prog);
-	fprintf(stderr, "Options:\n");
+	fprintf(stderr, "\nGeneral Options:\n");
 	fprintf(stderr, "  -v, --verbose       Enable verbose logging\n");
 	fprintf(stderr, "  --json              Output statistics in JSON format\n");
 	fprintf(stderr, "  --csv               Output statistics in CSV format\n");
 	fprintf(stderr, "  --latency           Enable latency measurements\n");
 	fprintf(stderr, "  --stats-interval N  Statistics update interval in seconds (default: 10)\n");
+	fprintf(stderr, "\nPacket Filtering Options:\n");
+	fprintf(stderr, "  --port N            ITO UDP port to match (default: 3842, 0 = any)\n");
+	fprintf(stderr, "  --no-oui-filter     Disable source MAC OUI filtering\n");
+	fprintf(stderr, "  --oui XX:XX:XX      Custom source OUI (default: 00:c0:17 NetAlly)\n");
+	fprintf(stderr, "\nReflection Mode:\n");
+	fprintf(stderr, "  --mode MODE         What to swap: mac, mac-ip, or all (default: all)\n");
+	fprintf(stderr, "                        mac    = Ethernet MAC only\n");
+	fprintf(stderr, "                        mac-ip = MAC + IP addresses\n");
+	fprintf(stderr, "                        all    = MAC + IP + UDP ports\n");
 #if HAVE_DPDK
 	fprintf(stderr, "\nDPDK Options (100G line-rate mode):\n");
 	fprintf(stderr, "  --dpdk              Use DPDK instead of AF_XDP (requires NIC binding)\n");
 	fprintf(stderr, "  --dpdk-args ARGS    Pass arguments to DPDK EAL (e.g., \"--lcores=1-4\")\n");
 #endif
-	fprintf(stderr, "  -h, --help          Show this help message\n");
+	fprintf(stderr, "\n  -h, --help          Show this help message\n");
 }
 
 int main(int argc, char **argv)
@@ -88,6 +97,13 @@ int main(int argc, char **argv)
 	const char *ifname = argv[1];
 	bool verbose = false;
 	bool measure_latency = false;
+
+	/* ITO packet filtering defaults */
+	uint16_t ito_port = ITO_UDP_PORT; /* Default port 3842 */
+	bool filter_oui = true;           /* Filter by NetAlly OUI by default */
+	uint8_t oui[3] = {NETALLY_OUI_BYTE0, NETALLY_OUI_BYTE1, NETALLY_OUI_BYTE2};
+	reflect_mode_t reflect_mode = REFLECT_MODE_ALL;
+
 #if HAVE_DPDK
 	bool use_dpdk = false;
 	char *dpdk_args = NULL;
@@ -114,6 +130,53 @@ int main(int argc, char **argv)
 				g_stats_interval = (int)val;
 			} else {
 				fprintf(stderr, "Missing value for --stats-interval\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "--port") == 0) {
+			if (i + 1 < argc) {
+				char *endptr;
+				long val = strtol(argv[++i], &endptr, 10);
+				if (*endptr != '\0' || val < 0 || val > 65535) {
+					fprintf(stderr, "Invalid port: %s (must be 0-65535)\n", argv[i]);
+					return 1;
+				}
+				ito_port = (uint16_t)val;
+			} else {
+				fprintf(stderr, "Missing value for --port\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "--no-oui-filter") == 0) {
+			filter_oui = false;
+		} else if (strcmp(argv[i], "--oui") == 0) {
+			if (i + 1 < argc) {
+				unsigned int b0, b1, b2;
+				if (sscanf(argv[++i], "%x:%x:%x", &b0, &b1, &b2) != 3 || b0 > 255 || b1 > 255 ||
+				    b2 > 255) {
+					fprintf(stderr, "Invalid OUI format: %s (use XX:XX:XX)\n", argv[i]);
+					return 1;
+				}
+				oui[0] = (uint8_t)b0;
+				oui[1] = (uint8_t)b1;
+				oui[2] = (uint8_t)b2;
+			} else {
+				fprintf(stderr, "Missing value for --oui\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "--mode") == 0) {
+			if (i + 1 < argc) {
+				i++;
+				if (strcmp(argv[i], "mac") == 0) {
+					reflect_mode = REFLECT_MODE_MAC;
+				} else if (strcmp(argv[i], "mac-ip") == 0) {
+					reflect_mode = REFLECT_MODE_MAC_IP;
+				} else if (strcmp(argv[i], "all") == 0) {
+					reflect_mode = REFLECT_MODE_ALL;
+				} else {
+					fprintf(stderr, "Invalid mode: %s (use mac, mac-ip, or all)\n", argv[i]);
+					return 1;
+				}
+			} else {
+				fprintf(stderr, "Missing value for --mode\n");
 				return 1;
 			}
 		} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -157,6 +220,13 @@ int main(int argc, char **argv)
 	g_rctx.config.measure_latency = measure_latency;
 	g_rctx.config.stats_format = g_stats_format;
 	g_rctx.config.stats_interval_sec = g_stats_interval;
+
+	/* ITO filtering options */
+	g_rctx.config.ito_port = ito_port;
+	g_rctx.config.filter_oui = filter_oui;
+	memcpy(g_rctx.config.oui, oui, 3);
+	g_rctx.config.reflect_mode = reflect_mode;
+
 #if HAVE_DPDK
 	g_rctx.config.use_dpdk = use_dpdk;
 	g_rctx.config.dpdk_args = dpdk_args;

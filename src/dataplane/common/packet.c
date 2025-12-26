@@ -67,13 +67,16 @@ static int cpu_has_neon __attribute__((unused)) = 1;
  * Checks (in order of increasing cost):
  * 1. Length check (54 bytes minimum) - LIKELY to pass
  * 2. Destination MAC match - LIKELY to fail (most traffic)
- * 3. EtherType = IPv4 (0x0800) - LIKELY to pass if MAC matched
- * 4. IP Protocol = UDP (0x11) - LIKELY to pass
- * 5. ITO signature match - LIKELY to pass if UDP
+ * 3. Source MAC OUI check (optional) - Filter by vendor (e.g., NetAlly 00:c0:17)
+ * 4. EtherType = IPv4 (0x0800) - LIKELY to pass if MAC matched
+ * 5. IP Protocol = UDP (0x11) - LIKELY to pass
+ * 6. UDP port check (optional) - Filter by port (e.g., 3842)
+ * 7. ITO signature match - LIKELY to pass if UDP
  *
  * Returns: true if packet should be reflected, false otherwise
  */
-ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6])
+ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
+                                 const reflector_config_t *config)
 {
 	static _Thread_local int debug_count = 0;
 
@@ -90,14 +93,29 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 	}
 
 	/* Check destination MAC matches our interface - UNLIKELY to match (filters most traffic) */
-	if (unlikely(memcmp(&data[ETH_DST_OFFSET], mac, 6) != 0)) {
+	if (unlikely(memcmp(&data[ETH_DST_OFFSET], config->mac, 6) != 0)) {
 		if (unlikely(debug_count++ < 3)) {
 			DEBUG_LOG("MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want "
 			          "%02x:%02x:%02x:%02x:%02x:%02x",
-			          data[0], data[1], data[2], data[3], data[4], data[5], mac[0], mac[1], mac[2],
-			          mac[3], mac[4], mac[5]);
+			          data[0], data[1], data[2], data[3], data[4], data[5], config->mac[0],
+			          config->mac[1], config->mac[2], config->mac[3], config->mac[4],
+			          config->mac[5]);
 		}
 		return false;
+	}
+
+	/* Check source MAC OUI if filtering enabled (default: NetAlly 00:c0:17) */
+	if (config->filter_oui) {
+		if (unlikely(data[ETH_SRC_OFFSET] != config->oui[0] ||
+		             data[ETH_SRC_OFFSET + 1] != config->oui[1] ||
+		             data[ETH_SRC_OFFSET + 2] != config->oui[2])) {
+			if (unlikely(debug_count++ < 3)) {
+				DEBUG_LOG("OUI mismatch: got %02x:%02x:%02x, want %02x:%02x:%02x",
+				          data[ETH_SRC_OFFSET], data[ETH_SRC_OFFSET + 1], data[ETH_SRC_OFFSET + 2],
+				          config->oui[0], config->oui[1], config->oui[2]);
+			}
+			return false;
+		}
 	}
 
 	/* Check EtherType = IPv4 (0x0800) - LIKELY to be IPv4 at this point */
@@ -132,7 +150,20 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_
 
 	/* Calculate UDP payload offset */
 	uint32_t ip_hdr_len = ihl * 4;
-	uint32_t udp_payload_offset = ETH_HDR_LEN + ip_hdr_len + UDP_HDR_LEN;
+	uint32_t udp_offset = ETH_HDR_LEN + ip_hdr_len;
+	uint32_t udp_payload_offset = udp_offset + UDP_HDR_LEN;
+
+	/* Check destination UDP port if filtering enabled (default: 3842) */
+	if (config->ito_port != 0) {
+		uint16_t dst_port = (data[udp_offset + UDP_DST_PORT_OFFSET] << 8) |
+		                    data[udp_offset + UDP_DST_PORT_OFFSET + 1];
+		if (unlikely(dst_port != config->ito_port)) {
+			if (unlikely(debug_count++ < 3)) {
+				DEBUG_LOG("Port mismatch: got %u, want %u", dst_port, config->ito_port);
+			}
+			return false;
+		}
+	}
 
 	/* Ensure we have enough data for signature - LIKELY to have enough */
 	if (unlikely(len < udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN)) {
@@ -417,8 +448,8 @@ static uint16_t calculate_udp_checksum(const uint8_t *iph, const uint8_t *udph, 
 	sum += ntohs(dst_ip[0]);
 	sum += ntohs(dst_ip[1]);
 
-	/* Sum protocol (UDP = 17) + UDP length */
-	sum += 17;
+	/* Sum protocol (UDP) + UDP length */
+	sum += IPPROTO_UDP;
 	sum += udp_len;
 
 	/* Sum UDP header + data (skip checksum field at offset 6) */
@@ -504,11 +535,11 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
 	reflect_packet_inplace(data, len);
 
 	/* Recalculate checksums if software fallback enabled */
-	if (software_checksum && len >= 42) {  /* Min: 14 ETH + 20 IP + 8 UDP */
-		uint8_t *iph = data + 14;          /* IP header after Ethernet */
+	if (software_checksum && len >= MIN_CHECKSUM_PACKET_LEN) {
+		uint8_t *iph = data + ETH_HDR_LEN;
 		uint8_t ihl = (iph[0] & 0x0F) * 4; /* IP header length in bytes */
 
-		if (ihl >= 20 && len >= 14 + ihl + 8) {
+		if (ihl >= IP_HDR_MIN_LEN && len >= ETH_HDR_LEN + ihl + UDP_HDR_LEN) {
 			/* Recalculate IP checksum */
 			uint16_t *ip_check = (uint16_t *)(iph + 10);
 			*ip_check = 0; /* Clear before calculation */
@@ -523,6 +554,101 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
 				*udp_check = 0; /* Clear before calculation */
 				*udp_check = calculate_udp_checksum(iph, udph, udp_len);
 			}
+		}
+	}
+}
+
+/*
+ * Reflect packet with configurable mode and optional checksum
+ *
+ * Supports three reflection modes:
+ * - REFLECT_MODE_MAC: Swap Ethernet MAC addresses only
+ * - REFLECT_MODE_MAC_IP: Swap MAC + IP addresses
+ * - REFLECT_MODE_ALL: Swap MAC + IP + UDP ports (default, full reflection)
+ */
+void reflect_packet_with_mode(uint8_t *data, uint32_t len, reflect_mode_t mode,
+                              bool software_checksum)
+{
+	/* All modes require at least Ethernet header */
+	if (len < ETH_HDR_LEN) {
+		return;
+	}
+
+	/* Prefetch areas we'll modify */
+	PREFETCH_WRITE(data);
+
+	/* Swap Ethernet MAC addresses (all modes do this) */
+	uint64_t temp_mac;
+	memcpy(&temp_mac, &data[ETH_DST_OFFSET], 6);
+	memcpy(&data[ETH_DST_OFFSET], &data[ETH_SRC_OFFSET], 6);
+	memcpy(&data[ETH_SRC_OFFSET], &temp_mac, 6);
+
+	if (mode == REFLECT_MODE_MAC) {
+		/* MAC-only mode: done */
+		return;
+	}
+
+	/* For MAC+IP and ALL modes, need IP header */
+	if (len < ETH_HDR_LEN + IP_HDR_MIN_LEN) {
+		return;
+	}
+
+	/* Get IP header length */
+	uint8_t ihl = data[ETH_HDR_LEN + IP_VER_IHL_OFFSET] & 0x0F;
+	uint32_t ip_hdr_len = ihl * 4;
+
+	if (ip_hdr_len < IP_HDR_MIN_LEN || len < ETH_HDR_LEN + ip_hdr_len) {
+		return;
+	}
+
+	/* Swap IP addresses */
+	uint32_t ip_offset = ETH_HDR_LEN;
+	uint32_t ip_src_val, ip_dst_val;
+	memcpy(&ip_src_val, &data[ip_offset + IP_SRC_OFFSET], 4);
+	memcpy(&ip_dst_val, &data[ip_offset + IP_DST_OFFSET], 4);
+	memcpy(&data[ip_offset + IP_SRC_OFFSET], &ip_dst_val, 4);
+	memcpy(&data[ip_offset + IP_DST_OFFSET], &ip_src_val, 4);
+
+	if (mode == REFLECT_MODE_MAC_IP) {
+		/* MAC+IP mode: recalculate IP checksum if needed, then done */
+		if (software_checksum) {
+			uint8_t *iph = data + ETH_HDR_LEN;
+			uint16_t *ip_check = (uint16_t *)(iph + 10);
+			*ip_check = 0;
+			*ip_check = calculate_ip_checksum(iph, ip_hdr_len);
+		}
+		return;
+	}
+
+	/* REFLECT_MODE_ALL: Also swap UDP ports */
+	if (len < ETH_HDR_LEN + ip_hdr_len + UDP_HDR_LEN) {
+		return;
+	}
+
+	uint32_t udp_offset = ETH_HDR_LEN + ip_hdr_len;
+	uint16_t udp_src_val, udp_dst_val;
+	memcpy(&udp_src_val, &data[udp_offset + UDP_SRC_PORT_OFFSET], 2);
+	memcpy(&udp_dst_val, &data[udp_offset + UDP_DST_PORT_OFFSET], 2);
+	memcpy(&data[udp_offset + UDP_SRC_PORT_OFFSET], &udp_dst_val, 2);
+	memcpy(&data[udp_offset + UDP_DST_PORT_OFFSET], &udp_src_val, 2);
+
+	/* Recalculate checksums if software fallback enabled */
+	if (software_checksum && len >= MIN_CHECKSUM_PACKET_LEN) {
+		uint8_t *iph = data + ETH_HDR_LEN;
+
+		/* Recalculate IP checksum */
+		uint16_t *ip_check = (uint16_t *)(iph + 10);
+		*ip_check = 0;
+		*ip_check = calculate_ip_checksum(iph, ip_hdr_len);
+
+		/* Recalculate UDP checksum */
+		uint8_t *udph = iph + ip_hdr_len;
+		uint16_t udp_len = ntohs(*(uint16_t *)(udph + 4));
+
+		if (len >= ETH_HDR_LEN + ip_hdr_len + udp_len) {
+			uint16_t *udp_check = (uint16_t *)(udph + 6);
+			*udp_check = 0;
+			*udp_check = calculate_udp_checksum(iph, udph, udp_len);
 		}
 	}
 }

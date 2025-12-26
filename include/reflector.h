@@ -109,6 +109,24 @@
 /* IP Protocol values */
 #define IPPROTO_UDP 17
 
+/* ITO test packet standard port (NetAlly test tools) */
+#define ITO_UDP_PORT 3842
+
+/* NetAlly OUI prefix for source MAC validation (00:c0:17) */
+#define NETALLY_OUI_BYTE0 0x00
+#define NETALLY_OUI_BYTE1 0xc0
+#define NETALLY_OUI_BYTE2 0x17
+
+/* Minimum software checksum packet length: ETH(14) + IP(20) + UDP(8) = 42 */
+#define MIN_CHECKSUM_PACKET_LEN 42
+
+/* Reflection mode - what headers to swap */
+typedef enum {
+	REFLECT_MODE_MAC = 0,    /* Swap MAC addresses only */
+	REFLECT_MODE_MAC_IP = 1, /* Swap MAC + IP addresses */
+	REFLECT_MODE_ALL = 2     /* Swap MAC + IP + UDP ports (default) */
+} reflect_mode_t;
+
 /* ITO packet signature types (for statistics) */
 typedef enum {
 	ITO_SIG_TYPE_PROBEOT = 0,
@@ -213,6 +231,14 @@ typedef struct {
 	/* DPDK options (Linux only, requires --dpdk flag) */
 	bool use_dpdk;   /* Use DPDK instead of AF_XDP (100G mode) */
 	char *dpdk_args; /* EAL arguments (e.g., "--lcores=1-4") */
+
+	/* ITO packet filtering options */
+	uint16_t ito_port; /* Required UDP port (default 3842, 0 = any) */
+	bool filter_oui;   /* Filter by source MAC OUI (default true) */
+	uint8_t oui[3];    /* Required OUI bytes (default 00:c0:17 NetAlly) */
+
+	/* Reflection mode */
+	reflect_mode_t reflect_mode; /* What to swap: MAC, MAC+IP, or ALL */
 } reflector_config_t;
 
 /* Packet descriptor */
@@ -426,10 +452,10 @@ int drop_privileges(void);
  * Fast-path validation with branch prediction hints.
  * @param data Packet data buffer
  * @param len Packet length in bytes
- * @param mac Expected destination MAC address
+ * @param config Reflector config (for port/OUI filtering)
  * @return true if valid ITO packet, false otherwise
  */
-bool is_ito_packet(const uint8_t *data, uint32_t len, const uint8_t mac[6]);
+bool is_ito_packet(const uint8_t *data, uint32_t len, const reflector_config_t *config);
 
 /**
  * Get ITO signature type from validated packet
@@ -457,6 +483,17 @@ void reflect_packet_inplace(uint8_t *data, uint32_t len);
  * @param software_checksum Whether to recalculate IP/UDP checksums in software
  */
 void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_checksum);
+
+/**
+ * Reflect packet with configurable mode and optional checksum
+ *
+ * @param data Packet data buffer (will be modified)
+ * @param len Packet length in bytes
+ * @param mode Reflection mode (MAC, MAC+IP, or ALL)
+ * @param software_checksum Whether to recalculate checksums in software
+ */
+void reflect_packet_with_mode(uint8_t *data, uint32_t len, reflect_mode_t mode,
+                              bool software_checksum);
 
 /* ------------------------------------------------------------------------
  * Statistics Helper Functions
