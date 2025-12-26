@@ -5,6 +5,157 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-12-25
+
+### Major Release - Go Control Plane, TUI, Web UI, and Packaging
+
+This is a major release introducing a Go-based control plane with terminal and web UIs,
+comprehensive packaging for Linux and macOS, and enhanced protocol support.
+
+### Added
+
+#### Go Control Plane (`cmd/`, `pkg/`)
+- **TUI Dashboard** (`pkg/tui/`) - Real-time terminal UI using tview with:
+  - Live statistics (packets, bytes, throughput)
+  - Signature breakdown (PROBEOT, DATA:OT, LATENCY)
+  - Latency histogram visualization
+  - Worker thread status
+- **Web UI** (`pkg/web/`, `ui/`) - Embedded React dashboard with:
+  - Real-time stats via REST API
+  - Auto-refresh with configurable interval
+  - Single binary deployment (no external files)
+  - Built with Vite and embedded via `go:embed`
+- **YAML Configuration** (`pkg/config/`) - Config file support:
+  - `--config reflector.yaml` to load settings
+  - All CLI options configurable via YAML
+  - Validation and sensible defaults
+- **CGO Bindings** (`pkg/dataplane/`) - Go wrapper for C dataplane:
+  - Zero-copy data sharing with C code
+  - Thread-safe stats collection
+  - Clean lifecycle management
+
+#### Protocol Enhancements
+- **IPv6 Reflection** - Full IPv6 packet support:
+  - 40-byte fixed header parsing
+  - Proper UDP checksum recalculation (pseudo-header)
+  - Source/destination address swapping
+- **VLAN 802.1Q** - Tagged packet handling:
+  - EtherType 0x8100 detection
+  - VLAN tag preservation during reflection
+  - Inner EtherType extraction
+
+#### Runtime NIC Detection (`src/dataplane/common/nic_detect.c`)
+- **Auto-detection** of NIC vendor/model via sysfs
+- **DPDK availability** check via dlopen
+- **Performance recommendations** based on NIC capabilities:
+  - Suggests DPDK for 25G+ Intel/Mellanox NICs
+  - Suggests AF_XDP for 10G+ NICs
+  - Warns when using AF_PACKET fallback
+- **Detailed AF_PACKET warnings** with upgrade instructions
+
+#### Packaging & Deployment
+- **Debian Package** (`packaging/debian/`):
+  - `.deb` package for Ubuntu/Debian (amd64)
+  - systemd service integration
+  - Default config in `/etc/reflector/`
+- **RPM Package** (`packaging/rpm/`):
+  - `.rpm` spec for Fedora/RHEL
+  - systemd service integration
+- **macOS Package** (`packaging/macos/`):
+  - `.pkg` installer for Intel and Apple Silicon
+  - launchd service integration
+- **GitHub Actions** (`.github/workflows/package.yml`):
+  - Automated builds on tag push
+  - Multi-platform artifacts (deb, rpm, pkg)
+  - GitHub Release creation
+
+#### Service Integration (`scripts/service/`)
+- **systemd** (`reflector.service`) - Linux daemon with:
+  - Auto-restart on failure
+  - After network-online.target
+  - CAP_NET_RAW capability
+- **launchd** (`com.reflector.plist`) - macOS daemon with:
+  - KeepAlive enabled
+  - Standard log locations
+  - Root execution for raw sockets
+
+### Changed
+- **Makefile** extended with Go build targets:
+  - `make v2` - Full v2.0 build (Go + React UI)
+  - `make go-build` - Build Go binary with embedded UI
+  - `make ui-build` - Build React UI only
+  - `make install-service-linux` - Install systemd service
+  - `make install-service-macos` - Install launchd service
+- **Version** updated to 2.0.0
+
+### Usage
+
+```bash
+# Build v2.0
+make v2
+
+# Run with TUI (default)
+./reflector eth0
+
+# Run with Web UI
+./reflector eth0 --web --web-port 8080
+
+# Run with config file
+./reflector --config reflector.yaml
+
+# Install as service (Linux)
+sudo make install-service-linux
+sudo systemctl enable --now reflector
+```
+
+---
+
+## [1.11.0] - 2025-12-25
+
+### Added
+- **ITO Port Filtering** - `--port N` to filter by UDP destination port (default: 3842)
+- **OUI Filtering** - `--oui XX:XX:XX` to filter by source MAC vendor
+- **Disable OUI Filter** - `--no-oui-filter` to accept packets from any vendor
+- **Reflection Modes** - `--mode mac|mac-ip|all` for configurable header swapping:
+  - `mac` - Swap Ethernet MAC addresses only (Layer 2)
+  - `mac-ip` - Swap MAC + IP addresses (Layer 3)
+  - `all` - Swap MAC + IP + UDP ports (Layer 4, default)
+
+### Changed
+- Default behavior now filters to NetAlly OUI (00:c0:17) and port 3842
+- Improved error messages for invalid packets
+
+---
+
+## [1.10.0] - 2025-12-24
+
+### Added
+- **DPDK Platform** (`src/dataplane/linux_dpdk/dpdk_platform.c`):
+  - 100G+ line-rate packet processing
+  - Poll-mode driver support for Intel, Mellanox, Broadcom NICs
+  - Multi-queue with RSS flow distribution
+  - EAL argument passthrough with `--dpdk-args`
+- **Platform Detection** (`include/platform_config.h`):
+  - Compile-time DPDK detection via `__has_include(<rte_eal.h>)`
+  - Runtime DPDK availability check
+- **CLI Options**:
+  - `--dpdk` - Enable DPDK mode (requires NIC binding)
+  - `--dpdk-args "..."` - Pass arguments to DPDK EAL
+
+### Usage
+```bash
+# Bind NIC to DPDK driver
+sudo dpdk-devbind.py --bind=vfio-pci 0000:04:00.0
+
+# Run with DPDK
+sudo ./reflector-linux --dpdk eth0
+
+# With custom EAL args
+sudo ./reflector-linux --dpdk --dpdk-args "--lcores=1-4" eth0
+```
+
+---
+
 ## [1.9.1] - 2025-01-07
 
 ### CRITICAL PATCH - AF_XDP Multi-Queue and Performance Fixes

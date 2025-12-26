@@ -3,7 +3,7 @@
 [![CI](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/ci.yml)
 [![Security](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml/badge.svg)](https://github.com/krisarmstrong/reflector-native/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.11.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/krisarmstrong/reflector-native/releases)
 [![Code Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen.svg)](docs/QUALITY_ASSURANCE.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](docs/QUALITY_ASSURANCE.md#code-coverage)
 [![Memory Safe](https://img.shields.io/badge/memory-safe-success.svg)](docs/QUALITY_ASSURANCE.md#memory-safety)
@@ -16,7 +16,19 @@ High-performance packet reflector for Fluke/NETSCOUT and NetAlly handheld networ
 
 This project provides packet reflection capabilities for ITO (Integrated Test & Optimization) packets on Linux and macOS platforms. The C-based data plane is designed for high performance with zero-copy packet processing where supported.
 
-**Current Version:** 1.11.0 (December 2025) - ITO filtering, reflection modes, DPDK support
+**Current Version:** 2.0.0 (December 2025) - Go control plane, TUI/Web UI, packaging, IPv6/VLAN support
+
+## What's New in v2.0
+
+- **Go Control Plane** - TUI dashboard and embedded Web UI in a single binary
+- **Terminal UI** - Real-time stats, signature breakdown, latency histogram
+- **Web Dashboard** - React-based UI accessible via `--web` flag
+- **YAML Config** - Configuration file support with `--config`
+- **IPv6 Support** - Full IPv6 packet reflection with UDP checksum
+- **VLAN 802.1Q** - Tagged packet handling
+- **NIC Detection** - Runtime recommendations for optimal platform
+- **Packaging** - `.deb`, `.rpm`, and macOS `.pkg` installers
+- **Service Integration** - systemd and launchd support
 
 ## Architecture
 
@@ -175,7 +187,7 @@ make test
 
 ## Usage
 
-### Basic Usage
+### Basic Usage (C Dataplane Only)
 ```bash
 # macOS
 sudo ./reflector-macos en0
@@ -185,6 +197,24 @@ sudo ./reflector-linux eth0
 
 # Linux with DPDK (100G mode)
 sudo ./reflector-linux --dpdk eth0
+```
+
+### v2.0 Usage (Go Control Plane with TUI/Web)
+```bash
+# Build v2.0
+make v2
+
+# Run with TUI dashboard (default)
+./reflector eth0
+
+# Run with Web UI
+./reflector eth0 --web --web-port 8080
+
+# Run with config file
+./reflector --config reflector.yaml
+
+# No TUI, just stats to stdout
+./reflector eth0 --no-tui
 ```
 
 ### Filtering Options
@@ -277,35 +307,46 @@ Reflects packets with these signatures at offset 5 in UDP payload:
 
 ```
 reflector-native/
+├── cmd/
+│   └── reflector/           # Go entry point (v2.0)
+│       └── main.go
+├── pkg/                     # Go packages (v2.0)
+│   ├── config/              # YAML configuration
+│   ├── dataplane/           # CGO bindings to C code
+│   ├── tui/                 # Terminal UI (tview)
+│   └── web/                 # Embedded web server
+├── ui/                      # React web UI source
+│   ├── src/App.jsx
+│   └── package.json
 ├── src/
 │   └── dataplane/           # C data plane implementations
 │       ├── common/          # Platform-agnostic code
 │       │   ├── packet.c     # ITO validation & reflection (SIMD)
 │       │   ├── util.c       # Interface/MAC utilities
 │       │   ├── core.c       # Worker thread management
+│       │   ├── nic_detect.c # Runtime NIC detection
 │       │   └── main.c       # CLI entry point
 │       ├── linux_xdp/       # Linux AF_XDP (10-40G)
-│       │   └── xdp_platform.c
 │       ├── linux_dpdk/      # Linux DPDK (100G+)
-│       │   └── dpdk_platform.c
 │       ├── linux_packet/    # Linux AF_PACKET (fallback)
-│       │   └── packet_platform.c
 │       └── macos_bpf/       # macOS BPF
-│           └── bpf_platform.c
 ├── include/                 # Header files
 │   ├── reflector.h          # Core definitions & API
 │   └── platform_config.h    # Platform detection
+├── packaging/               # Package build files
+│   ├── debian/              # .deb package
+│   └── rpm/                 # .rpm spec
+├── scripts/service/         # Service files
+│   ├── reflector.service    # systemd (Linux)
+│   └── com.reflector.plist  # launchd (macOS)
 ├── tests/                   # Unit tests
-│   └── test_packet_validation.c
 ├── docs/                    # Documentation
-│   ├── ARCHITECTURE.md      # Design & diagrams
-│   ├── PERFORMANCE.md       # Performance tuning
-│   └── QUICKSTART.md        # Getting started
 ├── .github/workflows/       # CI/CD automation
+│   ├── ci.yml               # Build & test
+│   ├── package.yml          # Package builds
+│   └── security.yml         # Security scanning
 ├── CHANGELOG.md             # Version history
-├── SECURITY.md              # Security policy
-├── CONTRIBUTING.md          # Contribution guidelines
-└── ROADMAP.md               # Future plans
+└── reflector.yaml.example   # Sample config file
 ```
 
 ## Development
