@@ -1221,5 +1221,11 @@ bool is_ito_packet_extended(const uint8_t *data, uint32_t len, const reflector_c
 		return true;
 	}
 
+	/* Check for RFC2544/Y.1564 custom signatures */
+	if (memcmp(sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0 ||
+	    memcmp(sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
+		return true;
+	}
+
 	return false;
 }
