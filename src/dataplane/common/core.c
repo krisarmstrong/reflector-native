@@ -137,7 +137,7 @@ static void *worker_thread(void *arg)
 		}
 
 		/* Accumulate RX stats in local batch */
-		stats_batch.packets_received += rcvd;
+		stats_batch.packets_received += (uint64_t)rcvd;
 		for (int i = 0; i < rcvd; i++) {
 			stats_batch.bytes_received += pkts_rx[i].len;
 		}
@@ -213,7 +213,7 @@ static void *worker_thread(void *arg)
 			int sent = platform_ops->send_batch(wctx, pkts_tx, num_tx);
 			if (sent < 0) {
 				/* Track TX failures in batch */
-				stats_batch.err_tx_failed += num_tx;
+				stats_batch.err_tx_failed += (uint64_t)num_tx;
 			} else if (sent > 0) {
 				/*
 				 * Release transmitted buffers back to platform
@@ -405,10 +405,10 @@ int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 int reflector_start(reflector_ctx_t *rctx)
 {
 	rctx->num_workers = rctx->config.num_workers;
-	rctx->workers = calloc(rctx->num_workers, sizeof(worker_ctx_t));
-	rctx->platform_contexts = calloc(rctx->num_workers, sizeof(platform_ctx_t *));
+	rctx->workers = calloc((size_t)rctx->num_workers, sizeof(worker_ctx_t));
+	rctx->platform_contexts = calloc((size_t)rctx->num_workers, sizeof(platform_ctx_t *));
 #ifdef __APPLE__
-	rctx->worker_queues = calloc(rctx->num_workers, sizeof(dispatch_queue_t));
+	rctx->worker_queues = calloc((size_t)rctx->num_workers, sizeof(dispatch_queue_t));
 	rctx->worker_group = dispatch_group_create();
 
 	if (!rctx->workers || !rctx->platform_contexts || !rctx->worker_queues || !rctx->worker_group) {
