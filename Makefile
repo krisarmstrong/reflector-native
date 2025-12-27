@@ -178,8 +178,25 @@ test-benchmark: $(TARGET)
 		src/dataplane/common/packet.o src/dataplane/common/util.o -o tests/test_benchmark
 	@./tests/test_benchmark
 
+# Fuzz testing for packet validation
+test-fuzz: $(TARGET)
+	@echo "Running fuzz tests (100000 iterations)..."
+	$(CC) $(CFLAGS) $(INCLUDES) tests/test_fuzz.c \
+		src/dataplane/common/packet.o src/dataplane/common/util.o -o tests/test_fuzz
+	@./tests/test_fuzz 100000
+	@echo "✅ Fuzz tests passed!"
+
+# Platform fallback and multi-worker tests
+test-platform: $(TARGET)
+	@echo "Running platform fallback and multi-worker tests..."
+	$(CC) $(CFLAGS) $(INCLUDES) tests/test_platform_fallback.c \
+		src/dataplane/common/packet.o src/dataplane/common/util.o src/dataplane/common/core.o \
+		$(PLATFORM_OBJS) -o tests/test_platform
+	@./tests/test_platform
+	@echo "✅ Platform tests passed!"
+
 # Run all tests
-test-all: test test-utils test-integration test-benchmark
+test-all: test test-utils test-integration test-benchmark test-fuzz test-platform
 	@echo ""
 	@echo "====================================="
 	@echo "✅ All tests passed!"
@@ -354,6 +371,8 @@ help:
 	@echo "  test          - Run basic packet validation tests"
 	@echo "  test-utils    - Run utility function tests"
 	@echo "  test-benchmark - Run performance benchmarks"
+	@echo "  test-fuzz     - Run fuzz testing on packet validation"
+	@echo "  test-platform - Run platform fallback and multi-worker tests"
 	@echo "  test-all      - Run all tests"
 	@echo ""
 	@echo "Quality Targets:"
@@ -465,7 +484,7 @@ v2: go-deps go-build
 	@echo "Run with Web UI:  ./reflector eth0 --web"
 	@echo "Run with config:  ./reflector -config reflector.yaml"
 
-.PHONY: all version test test-utils test-benchmark test-all coverage test-asan test-ubsan \
+.PHONY: all version test test-utils test-benchmark test-fuzz test-platform test-all coverage test-asan test-ubsan \
         test-valgrind format format-check lint cppcheck quality pre-commit ci-check \
         check-all clean clean-all install uninstall help \
         ui-build go-build go-build-minimal go-deps go-clean \
