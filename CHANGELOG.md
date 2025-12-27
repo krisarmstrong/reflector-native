@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/krisarmstrong/reflector-native/compare/v2.0.0...v2.1.0) (2025-12-27)
+
+
+### Features
+
+* add RFC2544/Y.1564 custom signature support ([de08def](https://github.com/krisarmstrong/reflector-native/commit/de08def727aba0d4bc67821c35fd37e088e89ecd))
+* add testing infrastructure and code review checklist ([#18](https://github.com/krisarmstrong/reflector-native/issues/18), [#19](https://github.com/krisarmstrong/reflector-native/issues/19), [#20](https://github.com/krisarmstrong/reflector-native/issues/20)) ([aac8e94](https://github.com/krisarmstrong/reflector-native/commit/aac8e940b7fde5addcbcf24194d32b51972f29ca))
+
+
+### Bug Fixes
+
+* resolve inline function linkage warning in packet.c ([91093d1](https://github.com/krisarmstrong/reflector-native/commit/91093d19ac9816dcd0f008e3ee852bf29fdafe05))
+
 ## [2.0.0] - 2025-12-25
 
 ### Major Release - Go Control Plane, TUI, Web UI, and Packaging
