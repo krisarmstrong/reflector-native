@@ -514,7 +514,7 @@ static uint16_t calculate_udp_checksum(const uint8_t *iph, const uint8_t *udph, 
  * Note: Does NOT calculate checksums - use reflect_packet_with_checksum()
  * if software checksum calculation is needed.
  */
-ALWAYS_INLINE void reflect_packet_inplace(uint8_t *data, uint32_t len)
+void reflect_packet_inplace(uint8_t *data, uint32_t len)
 {
 #if defined(__x86_64__) || defined(_M_X64)
 	/* Thread-safe CPU feature detection (once only) */
