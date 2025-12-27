@@ -240,8 +240,12 @@ int packet_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
 
 	/* Process frames from RX ring */
 	for (int i = 0; i < max_pkts; i++) {
-		struct tpacket3_hdr *hdr =
-		    (struct tpacket3_hdr *)(pctx->rx_ring + (pctx->rx_frame_idx * pctx->frame_size));
+		/* Bounds check to prevent overflow */
+		if (pctx->rx_frame_idx >= pctx->rx_frame_num) {
+			break;
+		}
+		size_t offset = (size_t)pctx->rx_frame_idx * pctx->frame_size;
+		struct tpacket3_hdr *hdr = (struct tpacket3_hdr *)(pctx->rx_ring + offset);
 
 		/* Check if frame is ready (kernel filled it) */
 		if ((hdr->tp_status & TP_STATUS_USER) == 0) {

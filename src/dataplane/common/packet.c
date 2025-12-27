@@ -15,6 +15,9 @@
 #include <string.h>
 
 #include <arpa/inet.h>
+#ifdef __linux__
+#include <netinet/in.h> /* IPPROTO_UDP */
+#endif
 
 /* SIMD support for x86_64 architectures */
 #if defined(__x86_64__) || defined(_M_X64)
@@ -432,13 +435,15 @@ __attribute__((unused)) static ALWAYS_INLINE void reflect_packet_inplace_scalar(
 static uint16_t calculate_ip_checksum(const uint8_t *iph, uint32_t ihl_bytes)
 {
 	uint32_t sum = 0;
-	const uint16_t *ptr = (const uint16_t *)iph;
 	uint32_t count = ihl_bytes;
 
 	/* Sum all 16-bit words, skipping checksum field */
+	/* Use memcpy for safe unaligned access */
 	for (uint32_t i = 0; i < count / 2; i++) {
 		if (i != 5) { /* Skip checksum field at offset 10 (word 5) */
-			sum += ntohs(ptr[i]);
+			uint16_t word;
+			memcpy(&word, iph + i * 2, sizeof(word));
+			sum += ntohs(word);
 		}
 	}
 
@@ -561,7 +566,7 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
 		uint8_t *iph = data + ETH_HDR_LEN;
 		uint8_t ihl = (iph[0] & 0x0F) * 4; /* IP header length in bytes */
 
-		if (ihl >= IP_HDR_MIN_LEN && len >= ETH_HDR_LEN + ihl + UDP_HDR_LEN) {
+		if (ihl >= IP_HDR_MIN_LEN && len >= (uint32_t)(ETH_HDR_LEN + ihl + UDP_HDR_LEN)) {
 			/* Recalculate IP checksum */
 			uint16_t *ip_check = (uint16_t *)(iph + 10);
 			*ip_check = 0; /* Clear before calculation */
@@ -571,7 +576,7 @@ void reflect_packet_with_checksum(uint8_t *data, uint32_t len, bool software_che
 			uint8_t *udph = iph + ihl;
 			uint16_t udp_len = ntohs(*(uint16_t *)(udph + 4));
 
-			if (len >= 14 + ihl + udp_len) {
+			if (len >= (uint32_t)(ETH_HDR_LEN + ihl + udp_len)) {
 				uint16_t *udp_check = (uint16_t *)(udph + 6);
 				*udp_check = 0; /* Clear before calculation */
 				*udp_check = calculate_udp_checksum(iph, udph, udp_len);

@@ -10,6 +10,7 @@ package dataplane
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../include
 #cgo LDFLAGS: -L${SRCDIR}/../../build -lreflector
+#cgo linux LDFLAGS: -lxdp -lbpf -lelf -lz
 
 #include "reflector.h"
 #include <stdlib.h>
@@ -68,10 +69,11 @@ type Stats struct {
 
 // Dataplane wraps the C reflector context
 type Dataplane struct {
-	ctx     C.reflector_ctx_t
-	cfg     *config.Config
-	running bool
-	mu      sync.RWMutex
+	ctx      C.reflector_ctx_t
+	cfg      *config.Config
+	running  bool
+	mu       sync.RWMutex
+	dpdkArgs *C.char // Store to prevent dangling pointer
 }
 
 // New creates a new dataplane instance
@@ -93,7 +95,7 @@ func New(cfg *config.Config) (*Dataplane, error) {
 	var dpdkArgs *C.char
 	if cfg.Platform.DPDKArgs != "" {
 		dpdkArgs = C.CString(cfg.Platform.DPDKArgs)
-		defer C.free(unsafe.Pointer(dpdkArgs))
+		dp.dpdkArgs = dpdkArgs // Store for cleanup in Close()
 	}
 
 	filterOUI := 0
@@ -161,6 +163,11 @@ func (dp *Dataplane) Stop() {
 func (dp *Dataplane) Close() {
 	dp.Stop()
 	C.reflector_cleanup(&dp.ctx)
+	// Free stored C strings
+	if dp.dpdkArgs != nil {
+		C.free(unsafe.Pointer(dp.dpdkArgs))
+		dp.dpdkArgs = nil
+	}
 }
 
 // GetStats returns current statistics

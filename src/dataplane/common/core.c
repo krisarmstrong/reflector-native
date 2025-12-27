@@ -246,6 +246,11 @@ static void *worker_thread(void *arg)
 /* Initialize reflector */
 int reflector_init(reflector_ctx_t *rctx, const char *ifname)
 {
+	/* Validate input parameters */
+	if (!rctx || !ifname) {
+		return -EINVAL;
+	}
+
 	memset(rctx, 0, sizeof(*rctx));
 
 	/* Set defaults */
@@ -662,55 +667,64 @@ void reflector_cleanup(reflector_ctx_t *rctx)
 	}
 }
 
-/* Get aggregated statistics */
+/* Atomic load helper for 64-bit values (thread-safe stats reading) */
+#define ATOMIC_LOAD64(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
+
+/* Get aggregated statistics (thread-safe) */
 void reflector_get_stats(const reflector_ctx_t *rctx, reflector_stats_t *stats)
 {
 	memset(stats, 0, sizeof(*stats));
 
 	for (int i = 0; i < rctx->num_workers; i++) {
-		/* Basic packet counters */
-		stats->packets_received += rctx->workers[i].stats.packets_received;
-		stats->packets_reflected += rctx->workers[i].stats.packets_reflected;
-		stats->packets_dropped += rctx->workers[i].stats.packets_dropped;
-		stats->bytes_received += rctx->workers[i].stats.bytes_received;
-		stats->bytes_reflected += rctx->workers[i].stats.bytes_reflected;
+		const reflector_stats_t *ws = &rctx->workers[i].stats;
+
+		/* Basic packet counters - use atomic loads for thread safety */
+		stats->packets_received += ATOMIC_LOAD64(ws->packets_received);
+		stats->packets_reflected += ATOMIC_LOAD64(ws->packets_reflected);
+		stats->packets_dropped += ATOMIC_LOAD64(ws->packets_dropped);
+		stats->bytes_received += ATOMIC_LOAD64(ws->bytes_received);
+		stats->bytes_reflected += ATOMIC_LOAD64(ws->bytes_reflected);
 
 		/* Per-signature counters */
-		stats->sig_probeot_count += rctx->workers[i].stats.sig_probeot_count;
-		stats->sig_dataot_count += rctx->workers[i].stats.sig_dataot_count;
-		stats->sig_latency_count += rctx->workers[i].stats.sig_latency_count;
-		stats->sig_unknown_count += rctx->workers[i].stats.sig_unknown_count;
+		stats->sig_probeot_count += ATOMIC_LOAD64(ws->sig_probeot_count);
+		stats->sig_dataot_count += ATOMIC_LOAD64(ws->sig_dataot_count);
+		stats->sig_latency_count += ATOMIC_LOAD64(ws->sig_latency_count);
+		stats->sig_unknown_count += ATOMIC_LOAD64(ws->sig_unknown_count);
 
 		/* Error counters */
-		stats->err_invalid_mac += rctx->workers[i].stats.err_invalid_mac;
-		stats->err_invalid_ethertype += rctx->workers[i].stats.err_invalid_ethertype;
-		stats->err_invalid_protocol += rctx->workers[i].stats.err_invalid_protocol;
-		stats->err_invalid_signature += rctx->workers[i].stats.err_invalid_signature;
-		stats->err_too_short += rctx->workers[i].stats.err_too_short;
-		stats->err_tx_failed += rctx->workers[i].stats.err_tx_failed;
-		stats->err_nomem += rctx->workers[i].stats.err_nomem;
+		stats->err_invalid_mac += ATOMIC_LOAD64(ws->err_invalid_mac);
+		stats->err_invalid_ethertype += ATOMIC_LOAD64(ws->err_invalid_ethertype);
+		stats->err_invalid_protocol += ATOMIC_LOAD64(ws->err_invalid_protocol);
+		stats->err_invalid_signature += ATOMIC_LOAD64(ws->err_invalid_signature);
+		stats->err_too_short += ATOMIC_LOAD64(ws->err_too_short);
+		stats->err_tx_failed += ATOMIC_LOAD64(ws->err_tx_failed);
+		stats->err_nomem += ATOMIC_LOAD64(ws->err_nomem);
 
 		/* Legacy error counters */
-		stats->rx_invalid += rctx->workers[i].stats.rx_invalid;
-		stats->rx_nomem += rctx->workers[i].stats.rx_nomem;
-		stats->tx_errors += rctx->workers[i].stats.tx_errors;
+		stats->rx_invalid += ATOMIC_LOAD64(ws->rx_invalid);
+		stats->rx_nomem += ATOMIC_LOAD64(ws->rx_nomem);
+		stats->tx_errors += ATOMIC_LOAD64(ws->tx_errors);
 
 		/* Aggregate latency statistics */
-		if (rctx->workers[i].stats.latency.count > 0) {
-			stats->latency.count += rctx->workers[i].stats.latency.count;
-			stats->latency.total_ns += rctx->workers[i].stats.latency.total_ns;
+		uint64_t lat_count = ATOMIC_LOAD64(ws->latency.count);
+		if (lat_count > 0) {
+			stats->latency.count += lat_count;
+			stats->latency.total_ns += ATOMIC_LOAD64(ws->latency.total_ns);
+
+			uint64_t lat_min = ATOMIC_LOAD64(ws->latency.min_ns);
+			uint64_t lat_max = ATOMIC_LOAD64(ws->latency.max_ns);
 
 			/* Update min/max across all workers */
-			if (stats->latency.count == rctx->workers[i].stats.latency.count) {
+			if (stats->latency.count == lat_count) {
 				/* First worker with latency data */
-				stats->latency.min_ns = rctx->workers[i].stats.latency.min_ns;
-				stats->latency.max_ns = rctx->workers[i].stats.latency.max_ns;
+				stats->latency.min_ns = lat_min;
+				stats->latency.max_ns = lat_max;
 			} else {
-				if (rctx->workers[i].stats.latency.min_ns < stats->latency.min_ns) {
-					stats->latency.min_ns = rctx->workers[i].stats.latency.min_ns;
+				if (lat_min < stats->latency.min_ns) {
+					stats->latency.min_ns = lat_min;
 				}
-				if (rctx->workers[i].stats.latency.max_ns > stats->latency.max_ns) {
-					stats->latency.max_ns = rctx->workers[i].stats.latency.max_ns;
+				if (lat_max > stats->latency.max_ns) {
+					stats->latency.max_ns = lat_max;
 				}
 			}
 		}

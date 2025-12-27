@@ -8,6 +8,7 @@ package tui
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -25,6 +26,7 @@ type App struct {
 	helpView  *tview.TextView
 	startTime time.Time
 	stopChan  chan struct{}
+	stopOnce  sync.Once // Prevent double-close panic
 }
 
 // New creates a new TUI application
@@ -107,8 +109,10 @@ func (a *App) Run() error {
 
 // Stop signals the TUI to exit
 func (a *App) Stop() {
-	close(a.stopChan)
-	a.app.Stop()
+	a.stopOnce.Do(func() {
+		close(a.stopChan)
+		a.app.Stop()
+	})
 }
 
 // updateLoop periodically refreshes the display

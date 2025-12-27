@@ -15,7 +15,7 @@
 
 #include "platform_config.h"
 
-static volatile bool g_running = true;
+static volatile sig_atomic_t g_running = 1;
 static reflector_ctx_t g_rctx;
 static stats_format_t g_stats_format = STATS_FORMAT_TEXT;
 static int g_stats_interval = 10; /* Default 10 seconds */
@@ -23,7 +23,7 @@ static int g_stats_interval = 10; /* Default 10 seconds */
 void signal_handler(int sig)
 {
 	(void)sig;
-	g_running = false;
+	g_running = 0;
 }
 
 void print_stats_text(const reflector_stats_t *stats, double elapsed)

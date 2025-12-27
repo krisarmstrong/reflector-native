@@ -110,11 +110,19 @@
 #define MIN_ITO_PACKET_LEN_IPV6 69 /* Eth(14) + IPv6(40) + UDP(8) + Sig(7) */
 #define MIN_ITO_PACKET_LEN_VLAN 58 /* Eth(14) + VLAN(4) + IP(20) + UDP(8) + Sig(7) + padding */
 
-/* EtherType values */
+/* EtherType values (guard against redefinition on Linux) */
+#ifndef ETH_P_IP
 #define ETH_P_IP 0x0800
+#endif
+#ifndef ETH_P_IPV6
 #define ETH_P_IPV6 0x86DD
+#endif
+#ifndef ETH_P_8021Q
 #define ETH_P_8021Q 0x8100  /* 802.1Q VLAN tagged frame */
+#endif
+#ifndef ETH_P_8021AD
 #define ETH_P_8021AD 0x88A8 /* 802.1ad QinQ */
+#endif
 
 /* VLAN header (802.1Q) */
 #define VLAN_HDR_LEN 4      /* TPID (2) + TCI (2) */
@@ -128,8 +136,12 @@
 #define IPV6_DST_OFFSET 24       /* Destination address (16 bytes) */
 #define IPV6_ADDR_LEN 16
 
-/* IP Protocol values */
+/* IP Protocol values - only define if not from system headers
+ * On Linux, IPPROTO_UDP is an enum in <netinet/in.h>, not a macro
+ */
+#if !defined(__linux__) && !defined(IPPROTO_UDP)
 #define IPPROTO_UDP 17
+#endif
 
 /* ITO test packet standard port (NetAlly test tools) */
 #define ITO_UDP_PORT 3842

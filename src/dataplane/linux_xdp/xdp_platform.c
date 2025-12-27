@@ -32,12 +32,14 @@
 #include <xdp/xsk.h>
 
 /* Shared BPF resources across all workers (only worker 0 initializes) */
+/* Use atomic operations for thread-safe access between workers */
 static struct bpf_object *g_bpf_obj = NULL;
 static int g_xsks_map_fd = -1;
 static int g_mac_map_fd = -1;
 static int g_sig_map_fd = -1;
 static int g_stats_map_fd = -1;
 static int g_prog_fd = -1;
+static volatile int g_bpf_init_done = 0; /* Memory barrier for init synchronization */
 
 /* Platform-specific context for AF_XDP */
 struct platform_ctx {
@@ -200,6 +202,9 @@ static int load_xdp_program(worker_ctx_t *wctx)
 	g_stats_map_fd = pctx->stats_map_fd;
 	g_prog_fd = pctx->prog_fd;
 
+	/* Memory barrier before signaling init done (release semantics) */
+	__atomic_store_n(&g_bpf_init_done, 1, __ATOMIC_RELEASE);
+
 	/* Attach XDP program to interface */
 	ret = bpf_xdp_attach(cfg->ifindex, pctx->prog_fd, XDP_FLAGS_DRV_MODE, NULL);
 	if (ret) {
@@ -266,6 +271,7 @@ static int init_xsk(worker_ctx_t *wctx)
  */
 int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 {
+	(void)rctx; /* May be used for multi-worker coordination in future */
 	reflector_config_t *cfg = wctx->config;
 	struct platform_ctx *pctx = calloc(1, sizeof(*pctx));
 	if (!pctx) {
@@ -313,6 +319,7 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 		int saved_errno = errno;
 		reflector_log(LOG_ERROR, "Failed to allocate UMEM: %s", strerror(saved_errno));
 		free(pctx);
+		wctx->pctx = NULL; /* Prevent use-after-free */
 		return saved_errno ? -saved_errno : -ENOMEM;
 	}
 
@@ -324,6 +331,7 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 	if (ret) {
 		munmap(umem_buffer, umem_size);
 		free(pctx);
+		wctx->pctx = NULL; /* Prevent use-after-free */
 		return ret;
 	}
 
@@ -334,9 +342,14 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 			xsk_umem__delete(pctx->xsk_info.umem.umem);
 			munmap(umem_buffer, umem_size);
 			free(pctx);
+			wctx->pctx = NULL; /* Prevent use-after-free */
 			return ret;
 		}
 	} else {
+		/* Wait for worker 0 to complete BPF initialization (acquire semantics) */
+		while (!__atomic_load_n(&g_bpf_init_done, __ATOMIC_ACQUIRE)) {
+			usleep(1000); /* Wait 1ms between checks */
+		}
 		/* Other workers use the shared BPF resources from worker 0 */
 		pctx->bpf_obj = g_bpf_obj;
 		pctx->xsks_map_fd = g_xsks_map_fd;
@@ -356,6 +369,7 @@ int xdp_platform_init(reflector_ctx_t *rctx, worker_ctx_t *wctx)
 		xsk_umem__delete(pctx->xsk_info.umem.umem);
 		munmap(umem_buffer, umem_size);
 		free(pctx);
+		wctx->pctx = NULL; /* Prevent use-after-free */
 		return ret;
 	}
 
@@ -405,7 +419,7 @@ void xdp_platform_cleanup(worker_ctx_t *wctx)
 int xdp_platform_recv_batch(worker_ctx_t *wctx, packet_t *pkts, int max_pkts)
 {
 	struct platform_ctx *pctx = wctx->pctx;
-	uint32_t idx_rx, idx_fq = 0;
+	uint32_t idx_rx;
 	int rcvd;
 
 	/* Check if we need to wake up kernel (NEED_WAKEUP flag) */
@@ -497,13 +511,11 @@ int xdp_platform_send_batch(worker_ctx_t *wctx, packet_t *pkts, int num_pkts)
 	}
 
 	/* Submit packets to TX ring */
+	/* Note: Stats are counted in core.c, not here (to avoid double-counting) */
 	for (int i = 0; i < reserved; i++) {
 		struct xdp_desc *tx_desc = xsk_ring_prod__tx_desc(&pctx->xsk_info.tx, idx_tx++);
 		tx_desc->addr = pkts[i].addr;
 		tx_desc->len = pkts[i].len;
-
-		wctx->stats.packets_reflected++;
-		wctx->stats.bytes_reflected += pkts[i].len;
 	}
 
 	xsk_ring_prod__submit(&pctx->xsk_info.tx, reserved);

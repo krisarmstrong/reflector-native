@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -21,7 +23,7 @@ type Stats struct {
 type Reflector struct {
 	ifname  string
 	cmd     *exec.Cmd
-	running bool
+	running atomic.Bool
 }
 
 func NewReflector(ifname string) *Reflector {
@@ -31,9 +33,24 @@ func NewReflector(ifname string) *Reflector {
 }
 
 func (r *Reflector) Start() error {
-	binary := "./reflector-linux"
-	if _, err := os.Stat("./reflector-macos"); err == nil {
+	// Try platform-specific binaries in priority order
+	var binary string
+	switch runtime.GOOS {
+	case "darwin":
 		binary = "./reflector-macos"
+	case "linux":
+		binary = "./reflector-linux"
+	default:
+		binary = "./reflector-linux"
+	}
+
+	// Fall back to opposite platform binary if not found
+	if _, err := os.Stat(binary); os.IsNotExist(err) {
+		if runtime.GOOS == "darwin" {
+			binary = "./reflector-linux"
+		} else {
+			binary = "./reflector-macos"
+		}
 	}
 
 	r.cmd = exec.Command(binary, r.ifname)
@@ -44,12 +61,12 @@ func (r *Reflector) Start() error {
 		return fmt.Errorf("failed to start reflector: %w", err)
 	}
 
-	r.running = true
+	r.running.Store(true)
 	return nil
 }
 
 func (r *Reflector) Stop() error {
-	if !r.running || r.cmd == nil {
+	if !r.running.Load() || r.cmd == nil {
 		return nil
 	}
 
@@ -60,7 +77,7 @@ func (r *Reflector) Stop() error {
 	if err := r.cmd.Wait(); err != nil {
 		return err
 	}
-	r.running = false
+	r.running.Store(false)
 	return nil
 }
 
@@ -99,7 +116,7 @@ func main() {
 	fmt.Println("Reflector started. Press Ctrl-C to stop.")
 
 	// Keep running
-	for r.running {
+	for r.running.Load() {
 		time.Sleep(1 * time.Second)
 	}
 }
