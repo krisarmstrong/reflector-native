@@ -6,32 +6,75 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-Group=root
 
-# Configuration file location
+# Run as dedicated user for security (created by postinst)
+User=reflector
+Group=reflector
+
+# Configuration
 EnvironmentFile=-/etc/reflector/environment
 
-# Main executable
-ExecStart=/usr/local/bin/reflector -config /etc/reflector/reflector.yaml --no-tui
+# Main executable - uses setcap capabilities
+ExecStart=/usr/bin/reflector --config /etc/reflector/reflector.yaml --no-tui
 
 # Restart policy
 Restart=on-failure
 RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
-# Security hardening
+# ============================================================================
+# Capability-Based Security (allows non-root operation)
+# ============================================================================
+# CAP_NET_RAW - Required for raw packet access (AF_PACKET, AF_XDP)
+# CAP_NET_ADMIN - Required for interface configuration
+# CAP_SYS_ADMIN - Required for BPF programs (AF_XDP)
+# CAP_IPC_LOCK - Required for UMEM memory locking
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_SYS_ADMIN CAP_IPC_LOCK
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_SYS_ADMIN CAP_IPC_LOCK
+
+# ============================================================================
+# Security Hardening
+# ============================================================================
 NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+ProtectKernelTunables=false   # Need access for /proc/sys/net
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+PrivateMounts=true
+
+# Allow read-only access to most paths
 ReadOnlyPaths=/
-ReadWritePaths=/var/log
 
-# Resource limits
-LimitNOFILE=65536
+# Write access for logs and state
+ReadWritePaths=/var/log/reflector /var/lib/reflector /run/reflector
+
+# Network namespaces - keep access to host network
+PrivateNetwork=false
+
+# ============================================================================
+# Resource Limits
+# ============================================================================
+# Required for packet processing performance
+LimitNOFILE=1048576
 LimitMEMLOCK=infinity
+LimitNPROC=4096
 
+# CPU scheduling for real-time packet processing
+#CPUSchedulingPolicy=fifo
+#CPUSchedulingPriority=50
+
+# ============================================================================
 # Logging
+# ============================================================================
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=reflector

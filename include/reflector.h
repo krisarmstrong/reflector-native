@@ -288,9 +288,10 @@ typedef struct {
 	char *dpdk_args; /* EAL arguments (e.g., "--lcores=1-4") */
 
 	/* ITO packet filtering options */
-	uint16_t ito_port; /* Required UDP port (default 3842, 0 = any) */
-	bool filter_oui;   /* Filter by source MAC OUI (default true) */
-	uint8_t oui[3];    /* Required OUI bytes (default 00:c0:17 NetAlly) */
+	uint16_t ito_port;   /* Required UDP port (default 3842, 0 = any) */
+	bool filter_oui;     /* Filter by source MAC OUI (default true) */
+	uint8_t oui[3];      /* Required OUI bytes (default 00:c0:17 NetAlly) */
+	bool filter_dst_mac; /* Filter by destination MAC (default true) */
 
 	/* Reflection mode */
 	reflect_mode_t reflect_mode; /* What to swap: MAC, MAC+IP, or ALL */

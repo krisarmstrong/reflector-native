@@ -65,6 +65,7 @@ void print_usage(const char *prog)
 	fprintf(stderr, "\nPacket Filtering Options:\n");
 	fprintf(stderr, "  --port N            ITO UDP port to match (default: 3842, 0 = any)\n");
 	fprintf(stderr, "  --no-oui-filter     Disable source MAC OUI filtering\n");
+	fprintf(stderr, "  --no-mac-filter     Disable destination MAC filtering (accept all)\n");
 	fprintf(stderr, "  --oui XX:XX:XX      Custom source OUI (default: 00:c0:17 NetAlly)\n");
 	fprintf(stderr, "\nReflection Mode:\n");
 	fprintf(stderr, "  --mode MODE         What to swap: mac, mac-ip, or all (default: all)\n");
@@ -108,6 +109,7 @@ int main(int argc, char **argv)
 	/* ITO packet filtering defaults */
 	uint16_t ito_port = ITO_UDP_PORT; /* Default port 3842 */
 	bool filter_oui = true;           /* Filter by NetAlly OUI by default */
+	bool filter_dst_mac = true;       /* Filter by destination MAC by default */
 	uint8_t oui[3] = {NETALLY_OUI_BYTE0, NETALLY_OUI_BYTE1, NETALLY_OUI_BYTE2};
 	reflect_mode_t reflect_mode = REFLECT_MODE_ALL;
 	sig_filter_t sig_filter = SIG_FILTER_ALL; /* Accept all signatures by default */
@@ -155,6 +157,8 @@ int main(int argc, char **argv)
 			}
 		} else if (strcmp(argv[i], "--no-oui-filter") == 0) {
 			filter_oui = false;
+		} else if (strcmp(argv[i], "--no-mac-filter") == 0) {
+			filter_dst_mac = false;
 		} else if (strcmp(argv[i], "--oui") == 0) {
 			if (i + 1 < argc) {
 				unsigned int b0, b1, b2;
@@ -253,6 +257,7 @@ int main(int argc, char **argv)
 	/* ITO filtering options */
 	g_rctx.config.ito_port = ito_port;
 	g_rctx.config.filter_oui = filter_oui;
+	g_rctx.config.filter_dst_mac = filter_dst_mac;
 	memcpy(g_rctx.config.oui, oui, 3);
 	g_rctx.config.reflect_mode = reflect_mode;
 	g_rctx.config.sig_filter = sig_filter;

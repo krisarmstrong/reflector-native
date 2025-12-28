@@ -1,0 +1,63 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Create reflector user and group if they don't exist
+        if ! getent group reflector >/dev/null; then
+            groupadd --system reflector
+        fi
+
+        if ! getent passwd reflector >/dev/null; then
+            useradd --system --gid reflector --no-create-home \
+                --home-dir /var/lib/reflector --shell /usr/sbin/nologin \
+                --comment "Reflector packet reflector daemon" reflector
+        fi
+
+        # Create required directories
+        mkdir -p /var/log/reflector /var/lib/reflector /run/reflector
+        chown reflector:reflector /var/log/reflector /var/lib/reflector /run/reflector
+        chmod 755 /var/log/reflector /var/lib/reflector
+        chmod 755 /run/reflector
+
+        # Set file capabilities on the binary
+        # This allows non-root users to send/receive raw packets
+        if command -v setcap >/dev/null 2>&1; then
+            setcap 'cap_net_raw,cap_net_admin,cap_sys_admin,cap_ipc_lock+ep' /usr/bin/reflector || true
+        fi
+
+        # Ensure config directory permissions
+        chown root:reflector /etc/reflector
+        chmod 750 /etc/reflector
+        chown root:reflector /etc/reflector/reflector.yaml
+        chmod 640 /etc/reflector/reflector.yaml
+
+        # Reload systemd to pick up new service
+        systemctl daemon-reload || true
+
+        echo ""
+        echo "╔═══════════════════════════════════════════════════════════╗"
+        echo "║  Reflector installed successfully!                        ║"
+        echo "╠═══════════════════════════════════════════════════════════╣"
+        echo "║  Edit config:    /etc/reflector/reflector.yaml            ║"
+        echo "║  Start service:  sudo systemctl start reflector           ║"
+        echo "║  Enable at boot: sudo systemctl enable reflector          ║"
+        echo "║  View logs:      journalctl -u reflector -f               ║"
+        echo "║                                                           ║"
+        echo "║  Manual usage:   reflector <interface> [options]          ║"
+        echo "╚═══════════════════════════════════════════════════════════╝"
+        echo ""
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument: $1" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

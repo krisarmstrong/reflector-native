@@ -195,10 +195,7 @@ static void *worker_thread(void *arg)
 					}
 				}
 
-				/* Accumulate TX stats */
-				stats_batch.packets_reflected++;
-				stats_batch.bytes_reflected += pkts_rx[i].len;
-
+				/* Add to TX batch (stats counted after successful send) */
 				pkts_tx[num_tx++] = pkts_rx[i];
 			} else {
 				/* Not ITO packet, release buffer */
@@ -215,6 +212,11 @@ static void *worker_thread(void *arg)
 				/* Track TX failures in batch */
 				stats_batch.err_tx_failed += (uint64_t)num_tx;
 			} else if (sent > 0) {
+				/* Count ONLY successfully sent packets */
+				for (int i = 0; i < sent; i++) {
+					stats_batch.packets_reflected++;
+					stats_batch.bytes_reflected += pkts_tx[i].len;
+				}
 				/*
 				 * Release transmitted buffers back to platform
 				 * - AF_PACKET: Returns RX frames to kernel (packets were copied)
@@ -759,6 +761,17 @@ int reflector_set_config(reflector_ctx_t *rctx, const reflector_config_t *config
 	}
 
 	memcpy(&rctx->config, config, sizeof(reflector_config_t));
+
+	/* Cap num_workers to reasonable maximum */
+	if (rctx->config.num_workers > MAX_WORKERS) {
+		reflector_log(LOG_WARN, "Capping num_workers from %d to %d", rctx->config.num_workers,
+		              MAX_WORKERS);
+		rctx->config.num_workers = MAX_WORKERS;
+	}
+	if (rctx->config.num_workers < 1) {
+		rctx->config.num_workers = 1;
+	}
+
 	return 0;
 }
 

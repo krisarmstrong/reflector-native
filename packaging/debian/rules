@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) linux
+
+override_dh_auto_install:
+	# Install binary
+	install -D -m 755 reflector-linux debian/reflector/usr/bin/reflector
+
+	# Install systemd service
+	install -D -m 644 scripts/service/reflector.service debian/reflector/lib/systemd/system/reflector.service
+
+	# Install config
+	install -D -m 644 reflector.yaml.example debian/reflector/etc/reflector/reflector.yaml
+
+	# Install environment file template
+	install -D -m 644 packaging/debian/environment debian/reflector/etc/reflector/environment
+
+override_dh_auto_clean:
+	$(MAKE) clean || true
+
+override_dh_installsystemd:
+	dh_installsystemd --name=reflector --no-enable --no-start
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym

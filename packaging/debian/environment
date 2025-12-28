@@ -1,0 +1,9 @@
+# Reflector environment configuration
+# This file is sourced by the systemd service
+# Uncomment and modify as needed
+
+# Interface to bind to (required)
+#REFLECTOR_INTERFACE=eth0
+
+# Additional command-line arguments
+#REFLECTOR_ARGS="--verbose --mode all"

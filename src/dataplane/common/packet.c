@@ -96,15 +96,17 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
 	}
 
 	/* Check destination MAC matches our interface - UNLIKELY to match (filters most traffic) */
-	if (unlikely(memcmp(&data[ETH_DST_OFFSET], config->mac, 6) != 0)) {
-		if (unlikely(debug_count++ < 3)) {
-			DEBUG_LOG("MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want "
-			          "%02x:%02x:%02x:%02x:%02x:%02x",
-			          data[0], data[1], data[2], data[3], data[4], data[5], config->mac[0],
-			          config->mac[1], config->mac[2], config->mac[3], config->mac[4],
-			          config->mac[5]);
+	if (config->filter_dst_mac) {
+		if (unlikely(memcmp(&data[ETH_DST_OFFSET], config->mac, 6) != 0)) {
+			if (unlikely(debug_count++ < 3)) {
+				DEBUG_LOG("MAC mismatch: got %02x:%02x:%02x:%02x:%02x:%02x, want "
+				          "%02x:%02x:%02x:%02x:%02x:%02x",
+				          data[0], data[1], data[2], data[3], data[4], data[5], config->mac[0],
+				          config->mac[1], config->mac[2], config->mac[3], config->mac[4],
+				          config->mac[5]);
+			}
+			return false;
 		}
-		return false;
 	}
 
 	/* Check source MAC OUI if filtering enabled (default: NetAlly 00:c0:17) */
@@ -177,35 +179,37 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
 		return false;
 	}
 
-	/* Check for signatures - LIKELY to match at this point */
-	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
-
-	if (unlikely(debug_count++ < 3)) {
-		/* Ensure buffer is large enough for signature + null terminator */
-		_Static_assert(ITO_SIG_LEN <= 7, "sig_str buffer too small for ITO_SIG_LEN");
-		char sig_str[ITO_SIG_LEN + 1];
-		memcpy(sig_str, sig, ITO_SIG_LEN);
-		sig_str[ITO_SIG_LEN] = '\0';
-		DEBUG_LOG("UDP payload signature: '%s'", sig_str);
-	}
-
 	/* Check signatures based on filter mode */
 	sig_filter_t filter = config->sig_filter;
 
-	/* ITO signatures (NetAlly/Fluke/NETSCOUT) */
+	/*
+	 * ITO signatures are at offset 5 in UDP payload (5-byte ITO header)
+	 * RFC2544/Y.1564 signatures are at offset 0 (start of UDP payload)
+	 */
+	const uint8_t *ito_sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
+	const uint8_t *custom_sig = &data[udp_payload_offset]; /* Offset 0 for RFC2544/Y.1564 */
+
+	if (unlikely(debug_count++ < 3)) {
+		char sig_str[8];
+		memcpy(sig_str, custom_sig, 7);
+		sig_str[7] = '\0';
+		DEBUG_LOG("UDP payload signature (offset 0): '%s'", sig_str);
+	}
+
+	/* ITO signatures (NetAlly/Fluke/NETSCOUT) - at offset 5 */
 	if (filter == SIG_FILTER_ALL || filter == SIG_FILTER_ITO) {
-		if (memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
-		    memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
-		    memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
+		if (memcmp(ito_sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
+		    memcmp(ito_sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
+		    memcmp(ito_sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
 			DEBUG_LOG("ITO packet matched! len=%u", len);
 			return true;
 		}
 	}
 
-	/* Custom signatures (RFC2544/Y.1564 tester) */
+	/* Custom signatures (RFC2544/Y.1564 tester) - at offset 0 */
 	if (filter == SIG_FILTER_ALL || filter == SIG_FILTER_CUSTOM ||
 	    filter == SIG_FILTER_RFC2544) {
-		if (memcmp(sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0) {
+		if (memcmp(custom_sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0) {
 			DEBUG_LOG("RFC2544 packet matched! len=%u", len);
 			return true;
 		}
@@ -213,7 +217,7 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
 
 	if (filter == SIG_FILTER_ALL || filter == SIG_FILTER_CUSTOM ||
 	    filter == SIG_FILTER_Y1564) {
-		if (memcmp(sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
+		if (memcmp(custom_sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
 			DEBUG_LOG("Y.1564 packet matched! len=%u", len);
 			return true;
 		}
@@ -708,26 +712,31 @@ sig_type_t get_ito_signature_type(const uint8_t *data, uint32_t len)
 	uint32_t ip_hdr_len = ihl * 4;
 	uint32_t udp_payload_offset = ETH_HDR_LEN + ip_hdr_len + UDP_HDR_LEN;
 
-	/* Safety check */
+	/* Safety check - need at least 12 bytes of UDP payload for ITO (5 header + 7 sig) */
 	if (len < udp_payload_offset + ITO_SIG_OFFSET + ITO_SIG_LEN) {
 		return SIG_TYPE_UNKNOWN;
 	}
 
-	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
+	/*
+	 * ITO signatures are at offset 5 in UDP payload (5-byte ITO header)
+	 * RFC2544/Y.1564 signatures are at offset 0 (start of UDP payload)
+	 */
+	const uint8_t *ito_sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
+	const uint8_t *custom_sig = &data[udp_payload_offset];
 
-	/* ITO signatures (NetAlly/Fluke/NETSCOUT) */
-	if (memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0) {
+	/* ITO signatures (NetAlly/Fluke/NETSCOUT) - at offset 5 */
+	if (memcmp(ito_sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0) {
 		return SIG_TYPE_PROBEOT;
-	} else if (memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0) {
+	} else if (memcmp(ito_sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0) {
 		return SIG_TYPE_DATAOT;
-	} else if (memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
+	} else if (memcmp(ito_sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0) {
 		return SIG_TYPE_LATENCY;
 	}
 
-	/* Custom signatures (RFC2544/Y.1564 tester) */
-	if (memcmp(sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0) {
+	/* Custom signatures (RFC2544/Y.1564 tester) - at offset 0 */
+	if (memcmp(custom_sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0) {
 		return SIG_TYPE_RFC2544;
-	} else if (memcmp(sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
+	} else if (memcmp(custom_sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
 		return SIG_TYPE_Y1564;
 	}
 
@@ -1119,8 +1128,10 @@ bool is_ito_packet_extended(const uint8_t *data, uint32_t len, const reflector_c
 	}
 
 	/* Check destination MAC matches our interface */
-	if (unlikely(memcmp(&data[ETH_DST_OFFSET], config->mac, 6) != 0)) {
-		return false;
+	if (config->filter_dst_mac) {
+		if (unlikely(memcmp(&data[ETH_DST_OFFSET], config->mac, 6) != 0)) {
+			return false;
+		}
 	}
 
 	/* Check source MAC OUI if filtering enabled */
@@ -1212,18 +1223,23 @@ bool is_ito_packet_extended(const uint8_t *data, uint32_t len, const reflector_c
 		}
 	}
 
-	/* Check for ITO signatures */
-	const uint8_t *sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
+	/*
+	 * ITO signatures are at offset 5 in UDP payload (5-byte ITO header)
+	 * RFC2544/Y.1564 signatures are at offset 0 (start of UDP payload)
+	 */
+	const uint8_t *ito_sig = &data[udp_payload_offset + ITO_SIG_OFFSET];
+	const uint8_t *custom_sig = &data[udp_payload_offset];
 
-	if (likely(memcmp(sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
-	           memcmp(sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
-	           memcmp(sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0)) {
+	/* Check for ITO signatures (at offset 5) */
+	if (likely(memcmp(ito_sig, ITO_SIG_PROBEOT, ITO_SIG_LEN) == 0 ||
+	           memcmp(ito_sig, ITO_SIG_DATAOT, ITO_SIG_LEN) == 0 ||
+	           memcmp(ito_sig, ITO_SIG_LATENCY, ITO_SIG_LEN) == 0)) {
 		return true;
 	}
 
-	/* Check for RFC2544/Y.1564 custom signatures */
-	if (memcmp(sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0 ||
-	    memcmp(sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
+	/* Check for RFC2544/Y.1564 custom signatures (at offset 0) */
+	if (memcmp(custom_sig, CUSTOM_SIG_RFC2544, CUSTOM_SIG_LEN) == 0 ||
+	    memcmp(custom_sig, CUSTOM_SIG_Y1564, CUSTOM_SIG_LEN) == 0) {
 		return true;
 	}
 

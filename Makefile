@@ -167,7 +167,7 @@ test-integration: $(TARGET)
 	@echo "Running integration tests..."
 	$(CC) $(CFLAGS) $(INCLUDES) tests/test_integration.c \
 		src/dataplane/common/packet.o src/dataplane/common/util.o src/dataplane/common/core.o \
-		$(PLATFORM_OBJS) -o tests/test_integration
+		$(PLATFORM_OBJS) -o tests/test_integration $(LDFLAGS)
 	@./tests/test_integration
 	@echo "✅ Integration tests passed!"
 
@@ -191,12 +191,20 @@ test-platform: $(TARGET)
 	@echo "Running platform fallback and multi-worker tests..."
 	$(CC) $(CFLAGS) $(INCLUDES) tests/test_platform_fallback.c \
 		src/dataplane/common/packet.o src/dataplane/common/util.o src/dataplane/common/core.o \
-		$(PLATFORM_OBJS) -o tests/test_platform
+		$(PLATFORM_OBJS) -o tests/test_platform $(LDFLAGS)
 	@./tests/test_platform
 	@echo "✅ Platform tests passed!"
 
+# NIC detection tests
+test-nic: $(TARGET)
+	@echo "Running NIC detection tests..."
+	$(CC) $(CFLAGS) $(INCLUDES) tests/test_nic_detect.c \
+		src/dataplane/common/nic_detect.o src/dataplane/common/util.o -o tests/test_nic -ldl
+	@./tests/test_nic
+	@echo "✅ NIC detection tests passed!"
+
 # Run all tests
-test-all: test test-utils test-integration test-benchmark test-fuzz test-platform
+test-all: test test-utils test-integration test-nic test-benchmark test-fuzz test-platform
 	@echo ""
 	@echo "====================================="
 	@echo "✅ All tests passed!"
@@ -350,7 +358,8 @@ check-all: clean format-check cppcheck lint test-all test-asan test-ubsan covera
 # Clean all build artifacts and test binaries
 clean-all: clean
 	@echo "Cleaning test artifacts..."
-	rm -f tests/test_packet tests/test_utils tests/test_benchmark
+	rm -f tests/test_packet tests/test_utils tests/test_benchmark tests/test_nic
+	rm -f tests/test_integration tests/test_platform tests/test_fuzz
 	rm -f tests/*.gcda tests/*.gcno
 	rm -f src/**/*.gcda src/**/*.gcno
 	rm -f *.gcov cppcheck-report.txt
@@ -370,6 +379,7 @@ help:
 	@echo "Testing Targets:"
 	@echo "  test          - Run basic packet validation tests"
 	@echo "  test-utils    - Run utility function tests"
+	@echo "  test-nic      - Run NIC detection tests"
 	@echo "  test-benchmark - Run performance benchmarks"
 	@echo "  test-fuzz     - Run fuzz testing on packet validation"
 	@echo "  test-platform - Run platform fallback and multi-worker tests"
@@ -484,8 +494,76 @@ v2: go-deps go-build
 	@echo "Run with Web UI:  ./reflector eth0 --web"
 	@echo "Run with config:  ./reflector -config reflector.yaml"
 
-.PHONY: all version test test-utils test-benchmark test-fuzz test-platform test-all coverage test-asan test-ubsan \
+# ===================================
+# Packaging
+# ===================================
+
+# Version for packaging
+PKG_VERSION := $(shell git describe --tags --always 2>/dev/null | sed 's/^v//' || echo "2.0.0")
+
+# Build Debian package (requires debuild or dpkg-deb)
+deb: linux
+	@echo "Building Debian package..."
+	@if command -v dpkg-buildpackage >/dev/null 2>&1; then \
+		mkdir -p debian && cp -r packaging/debian/* debian/; \
+		dpkg-buildpackage -us -uc -b; \
+		rm -rf debian; \
+		echo "✅ Debian package built"; \
+	else \
+		echo "Building simplified .deb package..."; \
+		mkdir -p build/deb/reflector/DEBIAN; \
+		mkdir -p build/deb/reflector/usr/bin; \
+		mkdir -p build/deb/reflector/lib/systemd/system; \
+		mkdir -p build/deb/reflector/etc/reflector; \
+		cp packaging/debian/control build/deb/reflector/DEBIAN/; \
+		cp packaging/debian/postinst build/deb/reflector/DEBIAN/; \
+		cp packaging/debian/prerm build/deb/reflector/DEBIAN/; \
+		cp packaging/debian/postrm build/deb/reflector/DEBIAN/; \
+		chmod 755 build/deb/reflector/DEBIAN/postinst build/deb/reflector/DEBIAN/prerm build/deb/reflector/DEBIAN/postrm; \
+		sed -i "s/^Version:.*/Version: $(PKG_VERSION)/" build/deb/reflector/DEBIAN/control; \
+		cp reflector-linux build/deb/reflector/usr/bin/reflector; \
+		cp scripts/service/reflector.service build/deb/reflector/lib/systemd/system/; \
+		cp reflector.yaml.example build/deb/reflector/etc/reflector/reflector.yaml; \
+		cp packaging/debian/environment build/deb/reflector/etc/reflector/; \
+		dpkg-deb --build build/deb/reflector; \
+		mv build/deb/reflector.deb reflector_$(PKG_VERSION)_amd64.deb; \
+		rm -rf build/deb; \
+		echo "✅ Built: reflector_$(PKG_VERSION)_amd64.deb"; \
+	fi
+
+# Build RPM package (requires rpmbuild)
+rpm: linux
+	@echo "Building RPM package..."
+	@if command -v rpmbuild >/dev/null 2>&1; then \
+		mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}; \
+		tar czf ~/rpmbuild/SOURCES/reflector-$(PKG_VERSION).tar.gz \
+			--transform="s|^|reflector-$(PKG_VERSION)/|" \
+			--exclude='.git*' --exclude='*.o' --exclude='reflector-*' .; \
+		sed "s/^Version:.*/Version:        $(PKG_VERSION)/" packaging/rpm/reflector.spec > ~/rpmbuild/SPECS/reflector.spec; \
+		rpmbuild -bb ~/rpmbuild/SPECS/reflector.spec; \
+		find ~/rpmbuild/RPMS -name "reflector*.rpm" -exec cp {} . \;; \
+		echo "✅ RPM package built"; \
+	else \
+		echo "❌ rpmbuild not found. Install with: sudo dnf install rpm-build"; \
+		exit 1; \
+	fi
+
+# Smoke tests (requires root for veth)
+smoke-test:
+	@echo "Running smoke tests..."
+	@if [ "$$(id -u)" != "0" ]; then \
+		echo "Smoke tests require root. Run: sudo make smoke-test"; \
+		exit 1; \
+	fi
+	@./tests/smoke/run_smoke_tests.sh
+
+# Build all packages
+packages: deb rpm
+	@echo "✅ All packages built"
+
+.PHONY: all version test test-utils test-nic test-benchmark test-fuzz test-platform test-all coverage test-asan test-ubsan \
         test-valgrind format format-check lint cppcheck quality pre-commit ci-check \
         check-all clean clean-all install uninstall help \
         ui-build go-build go-build-minimal go-deps go-clean \
-        install-service-linux install-service-macos v2
+        install-service-linux install-service-macos v2 \
+        deb rpm smoke-test packages

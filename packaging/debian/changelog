@@ -1,0 +1,10 @@
+reflector (2.0.0-1) unstable; urgency=medium
+
+  * Initial 2.0.0 release
+  * AF_PACKET and AF_XDP support
+  * TPACKET_V3 with automatic V2 fallback for veth interfaces
+  * RFC 2544, Y.1564, Y.1731, MEF, TSN packet reflection
+  * Systemd service with capability-based non-root operation
+  * Multiple reflection modes (MAC, MAC+IP, ALL)
+
+ -- Kris Armstrong <kris.armstrong@me.com>  Fri, 27 Dec 2024 12:00:00 -0500

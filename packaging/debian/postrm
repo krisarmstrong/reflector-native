@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    purge)
+        # Remove user and group on purge
+        if getent passwd reflector >/dev/null; then
+            userdel reflector || true
+        fi
+        if getent group reflector >/dev/null; then
+            groupdel reflector || true
+        fi
+
+        # Remove directories
+        rm -rf /var/log/reflector /var/lib/reflector /run/reflector
+        rm -rf /etc/reflector
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument: $1" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

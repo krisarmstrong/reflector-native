@@ -100,7 +100,6 @@ void benchmark_packet_reflection(void)
 /* Benchmark ITO packet validation */
 void benchmark_packet_validation(void)
 {
-	uint8_t mac[6] = {0x00, 0x01, 0x55, 0x17, 0x1e, 0x1b};
 	uint8_t packet[64] = {
 	    0x00, 0x01, 0x55, 0x17, 0x1e, 0x1b, 0x00, 0xc0, 0x17, 0x54, 0x05, 0x98, 0x08, 0x00,
 	    0x45, 0x00, 0x00, 0x27, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11, 0x00, 0x00, 0xc0, 0xa8,
@@ -108,11 +107,21 @@ void benchmark_packet_validation(void)
 	    0x09, 0x10, 0xea, 0x1d, 0x00, 'P',  'R',  'O',  'B',  'E',  'O',  'T',
 	};
 
+	/* Create config with MAC address */
+	reflector_config_t config = {0};
+	config.mac[0] = 0x00;
+	config.mac[1] = 0x01;
+	config.mac[2] = 0x55;
+	config.mac[3] = 0x17;
+	config.mac[4] = 0x1e;
+	config.mac[5] = 0x1b;
+	config.reflect_mode = REFLECT_MODE_ALL;
+
 	uint64_t start = get_timestamp_ns();
 	volatile bool result;
 
 	for (int i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		result = is_ito_packet(packet, sizeof(packet), mac);
+		result = is_ito_packet(packet, sizeof(packet), &config);
 	}
 
 	uint64_t end = get_timestamp_ns();

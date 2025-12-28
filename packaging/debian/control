@@ -2,13 +2,16 @@ Source: reflector
 Section: net
 Priority: optional
 Maintainer: Kris Armstrong <kris.armstrong@me.com>
-Build-Depends: debhelper (>= 12), golang-go (>= 1.21), libxdp-dev, libbpf-dev, libelf-dev, zlib1g-dev, nodejs, npm
-Standards-Version: 4.5.1
+Build-Depends: debhelper-compat (= 13), gcc, make
+Standards-Version: 4.6.0
 Homepage: https://github.com/krisarmstrong/reflector-native
+Vcs-Git: https://github.com/krisarmstrong/reflector-native.git
+Vcs-Browser: https://github.com/krisarmstrong/reflector-native
+Rules-Requires-Root: no
 
 Package: reflector
 Architecture: amd64 arm64
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, libcap2-bin
 Recommends: libxdp1, libbpf1
 Suggests: dpdk
 Description: High-performance network packet reflector
@@ -17,8 +20,9 @@ Description: High-performance network packet reflector
  .
  Features:
   - AF_XDP zero-copy packet processing (10-40 Gbps)
+  - AF_PACKET fallback for universal compatibility
   - Optional DPDK support for 100G+ line-rate
-  - Terminal UI (TUI) dashboard
-  - Embedded web UI
-  - ITO packet filtering (NetAlly/Fluke compatible)
+  - RFC 2544, Y.1564, Y.1731, MEF, TSN packet reflection
   - Multiple reflection modes (MAC, MAC+IP, ALL)
+  - NetAlly/Fluke compatible OUI filtering
+  - Systemd service with non-root operation via capabilities
