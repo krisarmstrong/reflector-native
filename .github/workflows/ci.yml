@@ -104,7 +104,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential clang valgrind
+        sudo apt-get install -y build-essential clang valgrind libelf-dev zlib1g-dev \
+                                libxdp-dev libbpf-dev
 
     - name: Run Address Sanitizer tests
       run: make test-asan
@@ -125,7 +126,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc gcovr lcov
+        sudo apt-get install -y build-essential gcc gcovr lcov libelf-dev zlib1g-dev \
+                                libxdp-dev libbpf-dev
 
     - name: Generate coverage
       run: make coverage

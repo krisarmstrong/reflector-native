@@ -18,6 +18,7 @@ static reflector_config_t make_test_config(const uint8_t mac[6])
 	reflector_config_t config = {0};
 	memcpy(config.mac, mac, 6);
 	/* Disable OUI and port filtering for backward compatibility with existing tests */
+	config.filter_dst_mac = true;
 	config.filter_oui = false;
 	config.ito_port = 0; /* 0 = any port */
 	config.reflect_mode = REFLECT_MODE_ALL;
