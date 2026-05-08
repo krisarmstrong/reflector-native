@@ -9,7 +9,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
       with:
         fetch-depth: 0  # Fetch all history for git describe
 
@@ -47,7 +47,7 @@ jobs:
         cat release_notes.md
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3.0.0
       with:
         name: Release ${{ steps.version.outputs.tag }}
         body_path: release_notes.md

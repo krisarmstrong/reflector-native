@@ -10,7 +10,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install dependencies
       run: |
@@ -26,7 +26,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: linux-test-results
         path: tests/test_*
@@ -34,7 +34,7 @@ jobs:
   build-linux-xdp:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install AF_XDP dependencies
       run: |
@@ -57,7 +57,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Build
       run: make clean && make
@@ -67,7 +67,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: macos-test-results
         path: tests/test_*
@@ -75,7 +75,7 @@ jobs:
   code-quality:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install tools
       run: |
@@ -90,7 +90,7 @@ jobs:
 
     - name: Upload cppcheck report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: cppcheck-report
         path: cppcheck-report.txt
@@ -98,7 +98,7 @@ jobs:
   memory-safety:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install dependencies
       run: |
@@ -119,7 +119,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install dependencies
       run: |
@@ -140,7 +140,7 @@ jobs:
 
     - name: Upload coverage artifacts
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: coverage-report
         path: |
@@ -150,7 +150,7 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install dependencies
       run: |
@@ -164,7 +164,7 @@ jobs:
       run: make test-benchmark
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: benchmark-results
         path: tests/test_benchmark

@@ -18,7 +18,7 @@ jobs:
       contents: read
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v2
@@ -35,7 +35,7 @@ jobs:
     name: Secret Detection
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
       with:
         fetch-depth: 0
 
@@ -48,7 +48,7 @@ jobs:
     name: Static Analysis
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Install dependencies
       run: |
@@ -71,7 +71,7 @@ jobs:
     name: Supply Chain Security
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6.0.2
 
     - name: Check for suspicious dependencies
       run: |
