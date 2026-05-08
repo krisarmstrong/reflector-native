@@ -1,6 +1,6 @@
 module github.com/krisarmstrong/reflector-native
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/gdamore/tcell/v2 v2.13.9
