@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1](https://github.com/krisarmstrong/reflector-native/compare/v2.1.0...v2.1.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **build:** include SSSE3 SIMD header ([aa19709](https://github.com/krisarmstrong/reflector-native/commit/aa1970940a3a40329edad7eb0495581d6bf6ab21))
+
 ## [2.0.0] - 2025-12-25
 
 ### Major Release - Go Control Plane, TUI, Web UI, and Packaging
