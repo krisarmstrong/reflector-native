@@ -218,7 +218,7 @@ test-all: test test-utils test-integration test-nic test-benchmark test-fuzz tes
 coverage: clean
 	@echo "Building with coverage instrumentation..."
 	$(MAKE) CFLAGS="-Wall -Wextra -O0 -g --coverage -pthread" \
-		LDFLAGS="-pthread --coverage" all
+		LDFLAGS="$(filter-out -flto,$(LDFLAGS)) --coverage" all
 	@echo "Running tests with coverage..."
 	-$(MAKE) test-all
 	@echo "Generating coverage report..."
@@ -237,7 +237,7 @@ coverage: clean
 test-asan: clean
 	@echo "Building with Address Sanitizer..."
 	$(MAKE) CFLAGS="-Wall -Wextra -O1 -g -fsanitize=address -fno-omit-frame-pointer -pthread" \
-		LDFLAGS="-pthread -fsanitize=address" all
+		LDFLAGS="$(filter-out -flto,$(LDFLAGS)) -fsanitize=address" all
 	@echo "Running tests with ASAN..."
 	-$(MAKE) test-all
 	@echo "✅ Address Sanitizer tests complete"
@@ -246,7 +246,7 @@ test-asan: clean
 test-ubsan: clean
 	@echo "Building with Undefined Behavior Sanitizer..."
 	$(MAKE) CFLAGS="-Wall -Wextra -O1 -g -fsanitize=undefined -fno-omit-frame-pointer -pthread" \
-		LDFLAGS="-pthread -fsanitize=undefined" all
+		LDFLAGS="$(filter-out -flto,$(LDFLAGS)) -fsanitize=undefined" all
 	@echo "Running tests with UBSAN..."
 	-$(MAKE) test-all
 	@echo "✅ UB Sanitizer tests complete"
