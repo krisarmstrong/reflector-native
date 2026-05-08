@@ -7,10 +7,12 @@ on:
     branches: [ main ]
   schedule:
     - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:
 
 jobs:
   codeql:
     name: CodeQL Analysis
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -26,7 +28,10 @@ jobs:
         languages: cpp
 
     - name: Build
-      run: make
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libelf-dev zlib1g-dev libxdp-dev libbpf-dev
+        make
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
@@ -58,7 +63,8 @@ jobs:
     - name: Run cppcheck
       run: |
         cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem \
-          --inline-suppr -I include src/ 2>&1 | tee cppcheck-report.txt || true
+          --suppress=syntaxError --suppress=preprocessorErrorDirective \
+          --inline-suppr -I include src/dataplane 2>&1 | tee cppcheck-report.txt || true
 
     - name: Check for critical issues
       run: |

@@ -238,7 +238,8 @@ ALWAYS_INLINE bool is_ito_packet(const uint8_t *data, uint32_t len,
  *
  * Expected performance gain: 2-3% over scalar version
  */
-static ALWAYS_INLINE void reflect_packet_inplace_simd(uint8_t *data, uint32_t len)
+static void __attribute__((target("ssse3"))) reflect_packet_inplace_simd(uint8_t *data,
+                                                                         uint32_t len)
 {
 	(void)len;
 

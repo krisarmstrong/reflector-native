@@ -38,6 +38,7 @@ vgcore.*
 
 # Logs
 *.log
+cppcheck-report.txt
 
 # Temporary files
 *.tmp

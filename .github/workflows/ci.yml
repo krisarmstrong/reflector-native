@@ -16,7 +16,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential clang clang-format clang-tidy \
-                                cppcheck valgrind libelf-dev zlib1g-dev gcovr
+                                cppcheck valgrind libelf-dev zlib1g-dev \
+                                libxdp-dev libbpf-dev gcovr
 
     - name: Build
       run: make clean && make
@@ -124,7 +125,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc gcov gcovr lcov
+        sudo apt-get install -y build-essential gcc gcovr lcov
 
     - name: Generate coverage
       run: make coverage
@@ -155,7 +156,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential
+        sudo apt-get install -y build-essential libelf-dev zlib1g-dev libxdp-dev libbpf-dev
 
     - name: Build
       run: make clean && make
