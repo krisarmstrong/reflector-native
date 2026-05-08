@@ -24,10 +24,11 @@
 #include <cpuid.h>
 #include <emmintrin.h> /* SSE2 */
 #include <pmmintrin.h> /* SSE3 */
+#include <tmmintrin.h> /* SSSE3 */
 
 /* CPU feature detection flags */
 static int cpu_has_sse2 = 0;
-static int cpu_has_sse3 = 0;
+static int cpu_has_ssse3 = 0;
 static pthread_once_t cpu_detect_once = PTHREAD_ONCE_INIT;
 
 /*
@@ -40,17 +41,17 @@ static void detect_cpu_features(void)
 	/* Check for SSE2 (CPUID.01H:EDX.SSE2[bit 26]) */
 	if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
 		cpu_has_sse2 = (edx & (1 << 26)) ? 1 : 0;
-		cpu_has_sse3 = (ecx & (1 << 0)) ? 1 : 0;
+		cpu_has_ssse3 = (ecx & (1 << 9)) ? 1 : 0;
 	} else {
 		cpu_has_sse2 = 0;
-		cpu_has_sse3 = 0;
+		cpu_has_ssse3 = 0;
 	}
 
 	/* Log which implementation (runs only once) */
-	if (cpu_has_sse2) {
-		reflector_log(LOG_INFO, "SIMD: x86_64 SSE2 enabled");
+	if (cpu_has_ssse3) {
+		reflector_log(LOG_INFO, "SIMD: x86_64 SSSE3 enabled");
 	} else {
-		reflector_log(LOG_INFO, "Using scalar packet reflection (SSE2 not available)");
+		reflector_log(LOG_INFO, "Using scalar packet reflection (SSSE3 not available)");
 	}
 }
 #endif /* __x86_64__ */
@@ -525,7 +526,7 @@ void reflect_packet_inplace(uint8_t *data, uint32_t len)
 	pthread_once(&cpu_detect_once, detect_cpu_features);
 
 	/* Dispatch to SIMD or scalar version */
-	if (likely(cpu_has_sse2)) {
+	if (likely(cpu_has_sse2 && cpu_has_ssse3)) {
 		reflect_packet_inplace_simd(data, len);
 	} else {
 		reflect_packet_inplace_scalar(data, len);
